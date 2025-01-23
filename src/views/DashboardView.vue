@@ -9,17 +9,29 @@
       <section class="templates">
         <div class="section-header">
           <h2>プロジェクトテンプレート</h2>
-          <button class="create-button">新規作成</button>
+          <button class="create-button" @click="handleCreate">新規作成</button>
         </div>
-        <div class="template-list">
-          <div class="template-card" v-for="i in 3" :key="i">
-            <h3>テンプレート {{ i }}</h3>
-            <p>説明文がここに入ります</p>
+        <div class="template-list" v-if="!loading">
+          <div v-if="templates.length === 0" class="no-data">
+            テンプレートがありません
+          </div>
+          <div class="template-card" v-for="template in templates" :key="template.id">
+            <div class="template-header">
+              <h3>{{ template.title }}</h3>
+              <span class="status-badge" :class="{ published: template.isPublished }">
+                {{ template.isPublished ? '公開済' : '下書き' }}
+              </span>
+            </div>
+            <p class="description">{{ template.description }}</p>
+            <p class="updated-at">最終更新: {{ template.updatedAt.toLocaleDateString('ja-JP') }}</p>
             <div class="card-actions">
-              <button class="action-button edit">編集</button>
-              <button class="action-button delete">削除</button>
+              <button class="action-button edit" @click="handleEdit(template.id)">編集</button>
+              <button class="action-button delete" @click="handleDelete(template.id)">削除</button>
             </div>
           </div>
+        </div>
+        <div v-else class="loading">
+          読み込み中...
         </div>
       </section>
 
@@ -44,10 +56,57 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { auth } from '@/main'
+import { ref, onMounted } from 'vue'
+import { auth, db } from '@/main'
 import { signOut } from 'firebase/auth'
+import { collection, query, getDocs, deleteDoc, doc } from 'firebase/firestore'
+import type { ProjectTemplate } from '@/types/firestore'
 
 const router = useRouter()
+const templates = ref<ProjectTemplate[]>([])
+const loading = ref(true)
+
+const fetchTemplates = async () => {
+  if (!auth.currentUser) return
+
+  try {
+    const templatesRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates`)
+    const q = query(templatesRef)
+    const querySnapshot = await getDocs(q)
+    
+    templates.value = querySnapshot.docs.map(doc => ({
+      ...doc.data(),
+      id: doc.id,
+      createdAt: doc.data().createdAt?.toDate(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    })) as ProjectTemplate[]
+  } catch (error) {
+    console.error('テンプレート取得エラー:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleCreate = () => {
+  router.push('/template/create')
+}
+
+const handleEdit = (id: string) => {
+  router.push(`/template/edit/${id}`)
+}
+
+const handleDelete = async (id: string) => {
+  if (!auth.currentUser) return
+  
+  if (!confirm('このテンプレートを削除してもよろしいですか？')) return
+
+  try {
+    await deleteDoc(doc(db, `users/${auth.currentUser.uid}/projectTemplates/${id}`))
+    templates.value = templates.value.filter(t => t.id !== id)
+  } catch (error) {
+    console.error('テンプレート削除エラー:', error)
+  }
+}
 
 const handleLogout = async () => {
   try {
@@ -57,6 +116,8 @@ const handleLogout = async () => {
     console.error('ログアウトエラー:', error)
   }
 }
+
+onMounted(fetchTemplates)
 </script>
 
 <style scoped>
@@ -192,5 +253,51 @@ h3 {
 p {
   margin: 0;
   color: #666;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.no-data {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.template-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.status-badge {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background-color: #e9ecef;
+  color: #495057;
+}
+
+.status-badge.published {
+  background-color: #28a745;
+  color: white;
+}
+
+.description {
+  margin-bottom: 0.5rem;
+  color: #495057;
+}
+
+.updated-at {
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin-bottom: 0.5rem;
 }
 </style>
