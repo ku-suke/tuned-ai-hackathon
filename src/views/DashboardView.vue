@@ -2,7 +2,7 @@
   <div class="dashboard">
     <header class="header">
       <h1>Dashboard</h1>
-      <button class="logout-button">ログアウト</button>
+      <button class="logout-button" @click="handleLogout">ログアウト</button>
     </header>
 
     <div class="content">
@@ -42,6 +42,23 @@
   </div>
 </template>
 
+<script setup lang="ts">
+import { useRouter } from 'vue-router'
+import { auth } from '@/main'
+import { signOut } from 'firebase/auth'
+
+const router = useRouter()
+
+const handleLogout = async () => {
+  try {
+    await signOut(auth)
+    router.push('/')
+  } catch (error) {
+    console.error('ログアウトエラー:', error)
+  }
+}
+</script>
+
 <style scoped>
 .dashboard {
   min-height: 100vh;
@@ -66,6 +83,10 @@
   cursor: pointer;
 }
 
+.logout-button:hover {
+  background-color: #c82333;
+}
+
 .content {
   padding: 2rem;
   max-width: 1200px;
@@ -86,6 +107,10 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
+}
+
+.create-button:hover {
+  background-color: #45a049;
 }
 
 .template-list,
@@ -123,14 +148,26 @@
   color: #000;
 }
 
+.action-button.edit:hover {
+  background-color: #e0a800;
+}
+
 .action-button.delete {
   background-color: #dc3545;
   color: white;
 }
 
+.action-button.delete:hover {
+  background-color: #c82333;
+}
+
 .action-button.view {
   background-color: #007bff;
   color: white;
+}
+
+.action-button.view:hover {
+  background-color: #0056b3;
 }
 
 section {
