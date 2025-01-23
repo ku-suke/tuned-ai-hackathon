@@ -4,13 +4,36 @@
       <h1>TunedAI</h1>
       <p class="description">AIを活用したプロジェクトテンプレート管理ツール</p>
       <div class="login-box">
-        <button class="login-button">
-          ログイン
+        <button class="login-button" @click="handleGoogleLogin">
+          <img src="https://www.google.com/favicon.ico" alt="Google" class="google-icon" />
+          Googleでログイン
         </button>
+        <p v-if="error" class="error-message">{{ error }}</p>
       </div>
     </div>
   </div>
 </template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { auth } from '@/main'
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
+
+const router = useRouter()
+const error = ref('')
+
+const handleGoogleLogin = async () => {
+  try {
+    const provider = new GoogleAuthProvider()
+    await signInWithPopup(auth, provider)
+    router.push('/dashboard')
+  } catch (e) {
+    error.value = 'ログインに失敗しました。もう一度お試しください。'
+    console.error('Login error:', e)
+  }
+}
+</script>
 
 <style scoped>
 .login-view {
@@ -45,7 +68,11 @@ h1 {
 }
 
 .login-button {
-  background-color: #4CAF50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #4285f4;
   color: white;
   padding: 0.8rem 2rem;
   border: none;
@@ -56,6 +83,17 @@ h1 {
 }
 
 .login-button:hover {
-  background-color: #45a049;
+  background-color: #357abd;
+}
+
+.google-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.error-message {
+  color: #dc3545;
+  margin-top: 1rem;
+  font-size: 0.9rem;
 }
 </style>
