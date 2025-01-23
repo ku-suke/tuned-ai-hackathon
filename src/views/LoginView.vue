@@ -17,16 +17,34 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth } from '@/main'
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
+import { auth, db } from '@/main'
+import { GoogleAuthProvider, signInWithPopup, User as FirebaseUser } from 'firebase/auth'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import type { User } from '@/types/firestore'
 
 const router = useRouter()
 const error = ref('')
 
+const createOrUpdateUser = async (firebaseUser: FirebaseUser) => {
+  const userRef = doc(db, 'users', firebaseUser.uid)
+  const userSnap = await getDoc(userRef)
+  
+  if (!userSnap.exists()) {
+    const userData: User = {
+      id: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      displayName: firebaseUser.displayName || '',
+      createdAt: serverTimestamp() as unknown as Date
+    }
+    await setDoc(userRef, userData)
+  }
+}
+
 const handleGoogleLogin = async () => {
   try {
     const provider = new GoogleAuthProvider()
-    await signInWithPopup(auth, provider)
+    const result = await signInWithPopup(auth, provider)
+    await createOrUpdateUser(result.user)
     router.push('/dashboard')
   } catch (e) {
     error.value = 'ログインに失敗しました。もう一度お試しください。'
