@@ -1,32 +1,32 @@
 <template>
-  <div class="dashboard">
+  <div class="page">
     <header class="header">
       <h1>Dashboard</h1>
-      <button class="logout-button" @click="handleLogout">ログアウト</button>
+      <button class="btn btn-danger" @click="handleLogout">ログアウト</button>
     </header>
 
     <div class="content">
       <section class="templates">
-        <div class="section-header">
+        <div class="d-flex justify-between align-center">
           <h2>プロジェクトテンプレート</h2>
-          <button class="create-button" @click="handleCreate">新規作成</button>
+          <button class="btn btn-success" @click="handleCreate">新規作成</button>
         </div>
-        <div class="template-list" v-if="!loading">
+        <div class="card-grid" v-if="!loading">
           <div v-if="templates.length === 0" class="no-data">
             テンプレートがありません
           </div>
-          <div class="template-card" v-for="template in templates" :key="template.id">
-            <div class="template-header">
+          <div class="card" v-for="template in templates" :key="template.id">
+            <div class="d-flex justify-between align-center">
               <h3>{{ template.title }}</h3>
-              <span class="status-badge" :class="{ published: template.isPublished }">
+              <span class="badge" :class="template.isPublished ? 'badge-success' : 'badge-gray'">
                 {{ template.isPublished ? '公開済' : '下書き' }}
               </span>
             </div>
             <p class="description">{{ template.description }}</p>
-            <p class="updated-at">最終更新: {{ template.updatedAt.toLocaleDateString('ja-JP') }}</p>
-            <div class="card-actions">
-              <button class="action-button edit" @click="handleEdit(template.id)">編集</button>
-              <button class="action-button delete" @click="handleDelete(template.id)">削除</button>
+            <p class="text-gray text-sm">最終更新: {{ template.updatedAt.toLocaleDateString('ja-JP') }}</p>
+            <div class="d-flex gap-sm">
+              <button class="btn btn-warning btn-sm" @click="handleEdit(template.id)">編集</button>
+              <button class="btn btn-danger btn-sm" @click="handleDelete(template.id)">削除</button>
             </div>
           </div>
         </div>
@@ -36,16 +36,16 @@
       </section>
 
       <section class="projects">
-        <div class="section-header">
+        <div class="d-flex justify-between align-center">
           <h2>プロジェクト</h2>
-          <button class="create-button">新規作成</button>
+          <button class="btn btn-success">新規作成</button>
         </div>
-        <div class="project-list">
-          <div class="project-card" v-for="i in 3" :key="i">
+        <div class="card-grid">
+          <div class="card" v-for="i in 3" :key="i">
             <h3>プロジェクト {{ i }}</h3>
-            <p>最終更新: 2024/01/23</p>
-            <div class="card-actions">
-              <button class="action-button view">表示</button>
+            <p class="text-gray text-sm">最終更新: 2024/01/23</p>
+            <div class="d-flex gap-sm">
+              <button class="btn btn-primary btn-sm">表示</button>
             </div>
           </div>
         </div>
@@ -121,183 +121,5 @@ onMounted(fetchTemplates)
 </script>
 
 <style scoped>
-.dashboard {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
-
-.header {
-  background-color: white;
-  padding: 1rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.logout-button {
-  padding: 0.5rem 1rem;
-  background-color: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.logout-button:hover {
-  background-color: #c82333;
-}
-
-.content {
-  padding: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.create-button {
-  padding: 0.5rem 1rem;
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.create-button:hover {
-  background-color: #45a049;
-}
-
-.template-list,
-.project-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.template-card,
-.project-card {
-  background-color: white;
-  padding: 1rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.card-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.action-button {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  flex: 1;
-}
-
-.action-button.edit {
-  background-color: #ffc107;
-  color: #000;
-}
-
-.action-button.edit:hover {
-  background-color: #e0a800;
-}
-
-.action-button.delete {
-  background-color: #dc3545;
-  color: white;
-}
-
-.action-button.delete:hover {
-  background-color: #c82333;
-}
-
-.action-button.view {
-  background-color: #007bff;
-  color: white;
-}
-
-.action-button.view:hover {
-  background-color: #0056b3;
-}
-
-section {
-  margin-bottom: 2rem;
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-h2 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-h3 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.1rem;
-}
-
-p {
-  margin: 0;
-  color: #666;
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: #666;
-}
-
-.no-data {
-  text-align: center;
-  padding: 2rem;
-  color: #666;
-  background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.template-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 0.5rem;
-}
-
-.status-badge {
-  font-size: 0.8rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  background-color: #e9ecef;
-  color: #495057;
-}
-
-.status-badge.published {
-  background-color: #28a745;
-  color: white;
-}
-
-.description {
-  margin-bottom: 0.5rem;
-  color: #495057;
-}
-
-.updated-at {
-  font-size: 0.8rem;
-  color: #6c757d;
-  margin-bottom: 0.5rem;
-}
+/* スコープ付きCSSを削除し、共通クラスを使用 */
 </style>

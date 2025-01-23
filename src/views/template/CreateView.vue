@@ -1,66 +1,85 @@
 <template>
-  <div class="template-create">
+  <div class="page">
     <header class="header">
       <h1>プロジェクトテンプレートの作成</h1>
-      <div class="header-actions">
-        <button class="cancel-button" @click="handleCancel">キャンセル</button>
-        <button class="save-button" @click="handleSave">保存</button>
+      <div class="d-flex gap-md">
+        <button class="btn btn-gray" @click="handleCancel">キャンセル</button>
+        <button class="btn btn-success" @click="handleSave">保存</button>
       </div>
     </header>
 
     <div class="content">
-      <div class="basic-info">
+      <div class="card mb-lg">
         <div class="form-group">
-          <label>テンプレート名</label>
-          <input type="text" v-model="title" placeholder="テンプレート名を入力">
+          <label class="form-label">テンプレート名</label>
+          <input type="text" class="form-input" v-model="title" placeholder="テンプレート名を入力">
         </div>
         <div class="form-group">
-          <label>説明</label>
-          <textarea v-model="description" placeholder="テンプレートの説明を入力"></textarea>
+          <label class="form-label">説明</label>
+          <textarea class="form-textarea" v-model="description" placeholder="テンプレートの説明を入力"></textarea>
         </div>
       </div>
 
-      <div class="steps-section">
-        <div class="section-header">
+      <div class="card">
+        <div class="d-flex justify-between align-center mb-md">
           <h2>ステップ</h2>
-          <button class="add-step-button" @click="addStep">ステップを追加</button>
+          <button class="btn btn-primary" @click="addStep">ステップを追加</button>
         </div>
 
-        <div class="steps-list">
-          <div class="step-item" v-for="(step, index) in steps" :key="index">
-            <div class="step-header">
+        <div class="d-flex flex-column gap-md">
+          <div class="card bg-light" v-for="(step, index) in steps" :key="index">
+            <div class="d-flex justify-between align-center mb-md">
               <h3>{{ step.title }}</h3>
-              <button class="delete-step-button" @click="removeStep(index)" :disabled="steps.length === 1">削除</button>
+              <button
+                class="btn btn-danger btn-sm"
+                @click="removeStep(index)"
+                :disabled="steps.length === 1"
+              >削除</button>
             </div>
             
-            <div class="step-content">
-              <div class="form-group">
-                <label>システムプロンプト</label>
-                <textarea v-model="step.systemPrompt" placeholder="AIに対するシステムプロンプトを入力"></textarea>
-              </div>
+            <div class="form-group">
+              <label class="form-label">システムプロンプト</label>
+              <textarea
+                class="form-textarea"
+                v-model="step.systemPrompt"
+                placeholder="AIに対するシステムプロンプトを入力"
+              ></textarea>
+            </div>
 
-              <div class="form-group">
-                <label>ユーザー選択肢プロンプト (オプション)</label>
-                <textarea v-model="step.userChoicePrompts" placeholder="ユーザーが選択できる選択肢のプロンプトを入力"></textarea>
-              </div>
+            <div class="form-group">
+              <label class="form-label">ユーザー選択肢プロンプト (オプション)</label>
+              <textarea
+                class="form-textarea"
+                v-model="step.userChoicePrompts"
+                placeholder="ユーザーが選択できる選択肢のプロンプトを入力"
+              ></textarea>
+            </div>
 
-              <div class="form-group">
-                <label>成果物生成プロンプト</label>
-                <textarea v-model="step.artifactGenerationPrompt" placeholder="成果物を生成するためのプロンプトを入力"></textarea>
-              </div>
+            <div class="form-group">
+              <label class="form-label">成果物生成プロンプト</label>
+              <textarea
+                class="form-textarea"
+                v-model="step.artifactGenerationPrompt"
+                placeholder="成果物を生成するためのプロンプトを入力"
+              ></textarea>
+            </div>
 
-              <div class="form-group">
-                <label>固定参照ドキュメント</label>
-                <div class="document-upload">
-                  <button class="upload-button">アップロード</button>
-                  <p class="upload-note">PDFまたはテキストファイル</p>
-                </div>
-                <div class="document-list">
-                  <div class="document-item" v-for="(doc, docIndex) in step.referenceDocuments" :key="docIndex">
-                    <span>{{ doc.title }}</span>
-                    <button class="remove-document">削除</button>
-                  </div>
-                </div>
+            <div class="form-group mb-sm">
+              <label class="form-label">固定参照ドキュメント</label>
+              <div class="card bg-light text-center p-md">
+                <button class="btn btn-gray mb-sm">アップロード</button>
+                <p class="text-sm text-gray">PDFまたはテキストファイル</p>
+              </div>
+            </div>
+
+            <div class="d-flex flex-column gap-sm">
+              <div
+                class="card bg-light d-flex justify-between align-center"
+                v-for="(doc, docIndex) in step.referenceDocuments"
+                :key="docIndex"
+              >
+                <span>{{ doc.title }}</span>
+                <button class="btn btn-danger btn-sm">削除</button>
               </div>
             </div>
           </div>
@@ -161,191 +180,5 @@ const handleSave = async () => {
 </script>
 
 <style scoped>
-.template-create {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
-
-.header {
-  background-color: white;
-  padding: 1rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.header-actions {
-  display: flex;
-  gap: 1rem;
-}
-
-.content {
-  padding: 2rem;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: bold;
-}
-
-input[type="text"],
-textarea {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-}
-
-textarea {
-  min-height: 100px;
-  resize: vertical;
-}
-
-.steps-section {
-  margin-top: 2rem;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.step-item {
-  background-color: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  margin-bottom: 1rem;
-}
-
-.step-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.document-upload {
-  border: 2px dashed #ddd;
-  padding: 1rem;
-  text-align: center;
-  border-radius: 4px;
-}
-
-.document-list {
-  margin-top: 1rem;
-}
-
-.document-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-}
-
-button {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.save-button {
-  background-color: #4CAF50;
-  color: white;
-}
-
-.save-button:hover:not(:disabled) {
-  background-color: #45a049;
-}
-
-.cancel-button {
-  background-color: #6c757d;
-  color: white;
-}
-
-.cancel-button:hover:not(:disabled) {
-  background-color: #5a6268;
-}
-
-.add-step-button {
-  background-color: #007bff;
-  color: white;
-}
-
-.add-step-button:hover:not(:disabled) {
-  background-color: #0056b3;
-}
-
-.delete-step-button {
-  background-color: #dc3545;
-  color: white;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-}
-
-.delete-step-button:hover:not(:disabled) {
-  background-color: #c82333;
-}
-
-.upload-button {
-  background-color: #6c757d;
-  color: white;
-  margin-bottom: 0.5rem;
-}
-
-.upload-button:hover:not(:disabled) {
-  background-color: #5a6268;
-}
-
-.upload-note {
-  color: #666;
-  margin: 0;
-  font-size: 0.875rem;
-}
-
-.remove-document {
-  background-color: #dc3545;
-  color: white;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-}
-
-.remove-document:hover:not(:disabled) {
-  background-color: #c82333;
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-h2 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-h3 {
-  margin: 0;
-  font-size: 1.1rem;
-}
+/* スコープ付きCSSを削除し、共通クラスを使用 */
 </style>

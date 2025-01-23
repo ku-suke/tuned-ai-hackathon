@@ -3,6 +3,7 @@
 </template>
 
 <style>
+@import '@/assets/main.css';
 /* Reset CSS */
 * {
   margin: 0;
@@ -31,4 +32,5 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.7;
 }
+
 </style>
