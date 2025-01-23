@@ -2,8 +2,59 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+    // ユーザー認証のヘルパー関数
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // リクエストユーザーとドキュメントの所有者が一致するか確認
+    function isOwner(userId) {
+      return isAuthenticated() && userId == request.auth.uid;
+    }
+
+    // ユーザードキュメント
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false; // ユーザーの削除は管理者のみ
+
+      // プロジェクトテンプレート（サブコレクション）
+      match /projectTemplates/{templateId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // 公開プロジェクトテンプレート
+    match /publishedTemplates/{templateId} {
+      // 認証済みユーザーは閲覧可能
+      allow read: if isAuthenticated();
+      
+      // 作成は元のテンプレートの所有者のみ可能
+      allow create: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)/projectTemplates/$(request.resource.data.originalTemplateId));
+      
+      // 更新と削除は元のテンプレートの所有者のみ可能
+      allow update, delete: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)/projectTemplates/$(resource.data.originalTemplateId));
+    }
+
+    // プロジェクト
+    match /projects/{projectId} {
+      allow read, write: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+      
+      allow create: if isAuthenticated() &&
+        // 新規作成時はテンプレートの存在確認
+        (
+          // プライベートテンプレートの場合
+          (request.resource.data.templateType == 'private' &&
+           exists(/databases/$(database)/documents/users/$(request.auth.uid)/projectTemplates/$(request.resource.data.templateId)))
+          ||
+          // 公開テンプレートの場合
+          (request.resource.data.templateType == 'published' &&
+           exists(/databases/$(database)/documents/publishedTemplates/$(request.resource.data.templateId)))
+        );
     }
   }
 }

@@ -1,0 +1,185 @@
+{
+  "users": [
+    {
+      "id": "user1",
+      "email": "demo@example.com",
+      "displayName": "デモユーザー",
+      "createdAt": "2024-01-23T13:00:00.000Z"
+    }
+  ],
+  "users/user1/projectTemplates": [
+    {
+      "id": "template1",
+      "title": "マーケティング戦略立案",
+      "description": "市場分析からマーケティング戦略を策定するためのテンプレート",
+      "createdAt": "2024-01-23T13:30:00.000Z",
+      "updatedAt": "2024-01-23T13:30:00.000Z",
+      "isPublished": true,
+      "publishedTemplateId": "pub_template1",
+      "steps": [
+        {
+          "id": "step1",
+          "title": "市場環境分析",
+          "order": 1,
+          "systemPrompt": "あなたはマーケティングコンサルタントとして、市場環境分析のサポートを行います。ユーザーの業界における市場動向、競合状況、顧客ニーズについて、具体的な質問を投げかけながら分析を進めてください。",
+          "userChoicePrompts": [
+            "主要な競合企業について教えてください",
+            "現在の市場規模と成長率はどの程度ですか？",
+            "顧客層の特徴を教えてください"
+          ],
+          "referenceDocuments": [
+            {
+              "id": "doc1",
+              "title": "業界レポート2024",
+              "content": "市場規模は2024年時点で1000億円...",
+              "type": "text"
+            }
+          ],
+          "artifactGenerationPrompt": "これまでの会話を基に、以下の項目を含む市場環境分析レポートを作成してください：\n1. 市場概況\n2. 競合分析\n3. 顧客ニーズ分析\n4. 機会と脅威"
+        },
+        {
+          "id": "step2",
+          "title": "戦略策定",
+          "order": 2,
+          "systemPrompt": "前のステップの市場環境分析を踏まえて、効果的なマーケティング戦略の策定をサポートします。",
+          "userChoicePrompts": [
+            "どのターゲット層に注力すべきですか？",
+            "どのような差別化戦略が有効ですか？"
+          ],
+          "referenceDocuments": [],
+          "artifactGenerationPrompt": "これまでの議論を基に、具体的なアクションプランを含むマーケティング戦略提案書を作成してください。"
+        }
+      ]
+    },
+    {
+      "id": "template2",
+      "title": "新規事業計画（下書き）",
+      "description": "新規事業のアイデア出しから事業計画策定まで",
+      "createdAt": "2024-01-23T14:30:00.000Z",
+      "updatedAt": "2024-01-23T14:30:00.000Z",
+      "isPublished": false,
+      "steps": [
+        {
+          "id": "step1",
+          "title": "アイデア創出",
+          "order": 1,
+          "systemPrompt": "新規事業のアイデア出しをサポートします。",
+          "userChoicePrompts": ["業界の課題は何ですか？"],
+          "referenceDocuments": [],
+          "artifactGenerationPrompt": "議論したアイデアを整理してまとめてください。"
+        }
+      ]
+    }
+  ],
+  "publishedTemplates": [
+    {
+      "id": "pub_template1",
+      "originalTemplateId": "template1",
+      "userId": "user1",
+      "authorName": "デモユーザー",
+      "title": "マーケティング戦略立案",
+      "description": "市場分析からマーケティング戦略を策定するためのテンプレート",
+      "publishedAt": "2024-01-23T13:35:00.000Z",
+      "updatedAt": "2024-01-23T13:35:00.000Z",
+      "categories": ["マーケティング", "戦略立案"],
+      "usageCount": 42,
+      "steps": [
+        {
+          "id": "step1",
+          "title": "市場環境分析",
+          "order": 1,
+          "systemPrompt": "あなたはマーケティングコンサルタントとして、市場環境分析のサポートを行います。ユーザーの業界における市場動向、競合状況、顧客ニーズについて、具体的な質問を投げかけながら分析を進めてください。",
+          "userChoicePrompts": [
+            "主要な競合企業について教えてください",
+            "現在の市場規模と成長率はどの程度ですか？",
+            "顧客層の特徴を教えてください"
+          ],
+          "referenceDocuments": [
+            {
+              "id": "doc1",
+              "title": "業界レポート2024",
+              "content": "市場規模は2024年時点で1000億円...",
+              "type": "text"
+            }
+          ],
+          "artifactGenerationPrompt": "これまでの会話を基に、以下の項目を含む市場環境分析レポートを作成してください：\n1. 市場概況\n2. 競合分析\n3. 顧客ニーズ分析\n4. 機会と脅威"
+        },
+        {
+          "id": "step2",
+          "title": "戦略策定",
+          "order": 2,
+          "systemPrompt": "前のステップの市場環境分析を踏まえて、効果的なマーケティング戦略の策定をサポートします。",
+          "userChoicePrompts": [
+            "どのターゲット層に注力すべきですか？",
+            "どのような差別化戦略が有効ですか？"
+          ],
+          "referenceDocuments": [],
+          "artifactGenerationPrompt": "これまでの議論を基に、具体的なアクションプランを含むマーケティング戦略提案書を作成してください。"
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "project1",
+      "userId": "user1",
+      "templateId": "pub_template1",
+      "templateType": "published",
+      "title": "A社マーケティング戦略2024",
+      "description": "A社の2024年マーケティング戦略立案プロジェクト",
+      "createdAt": "2024-01-23T14:00:00.000Z",
+      "updatedAt": "2024-01-23T15:00:00.000Z",
+      "status": "in_progress",
+      "steps": [
+        {
+          "id": "projectStep1",
+          "templateStepId": "step1",
+          "order": 1,
+          "conversations": [
+            {
+              "id": "conv1",
+              "role": "user",
+              "content": "当社は家具のECサイトを運営しています。主な競合企業について分析をお願いします。",
+              "createdAt": "2024-01-23T14:10:00.000Z"
+            },
+            {
+              "id": "conv2",
+              "role": "assistant",
+              "content": "家具のECサイト市場における主要な競合企業について分析していきましょう。まず、市場シェアの大きい企業から見ていきたいと思います...",
+              "createdAt": "2024-01-23T14:10:05.000Z"
+            }
+          ],
+          "artifact": {
+            "title": "市場環境分析レポート",
+            "content": "1. 市場概況\n市場規模は年間1200億円で、年率15%で成長しています...",
+            "summary": "市場分析完了",
+            "charCount": 2500,
+            "createdAt": "2024-01-23T14:30:00.000Z"
+          },
+          "documents": [
+            {
+              "id": "doc1",
+              "isEnabled": true
+            }
+          ],
+          "uploadedDocuments": [
+            {
+              "id": "upload1",
+              "title": "自社売上データ",
+              "content": "2023年度の売上実績は...",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "id": "projectStep2",
+          "templateStepId": "step2",
+          "order": 2,
+          "conversations": [],
+          "documents": [],
+          "uploadedDocuments": []
+        }
+      ]
+    }
+  ]
+}
