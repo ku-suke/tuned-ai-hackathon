@@ -38,16 +38,28 @@
       <section class="projects">
         <div class="d-flex justify-between align-center">
           <h2>プロジェクト</h2>
-          <button class="btn btn-success">新規作成</button>
+          <button class="btn btn-success" @click="handleCreateProject">新規作成</button>
         </div>
-        <div class="card-grid">
-          <div class="card" v-for="i in 3" :key="i">
-            <h3>プロジェクト {{ i }}</h3>
-            <p class="text-gray text-sm">最終更新: 2024/01/23</p>
+        <div class="card-grid" v-if="!projectsLoading">
+          <div v-if="projects.length === 0" class="no-data">
+            プロジェクトがありません
+          </div>
+          <div class="card" v-for="project in projects" :key="project.id">
+            <div class="d-flex justify-between align-center">
+              <h3>{{ project.title }}</h3>
+              <span class="badge" :class="project.status === 'completed' ? 'badge-success' : 'badge-warning'">
+                {{ project.status === 'completed' ? '完了' : '進行中' }}
+              </span>
+            </div>
+            <p class="description">{{ project.description }}</p>
+            <p class="text-gray text-sm">最終更新: {{ project.updatedAt.toLocaleDateString('ja-JP') }}</p>
             <div class="d-flex gap-sm">
-              <button class="btn btn-primary btn-sm">表示</button>
+              <button class="btn btn-primary btn-sm" @click="handleViewProject(project.id)">表示</button>
             </div>
           </div>
+        </div>
+        <div v-else class="loading">
+          読み込み中...
         </div>
       </section>
     </div>
@@ -60,11 +72,13 @@ import { ref, onMounted } from 'vue'
 import { auth, db } from '@/main'
 import { signOut } from 'firebase/auth'
 import { collection, query, getDocs, deleteDoc, doc } from 'firebase/firestore'
-import type { ProjectTemplate } from '@/types/firestore'
+import type { ProjectTemplate, Project } from '@/types/firestore'
 
 const router = useRouter()
 const templates = ref<ProjectTemplate[]>([])
 const loading = ref(true)
+const projects = ref<Project[]>([])
+const projectsLoading = ref(true)
 
 const fetchTemplates = async () => {
   if (!auth.currentUser) return
@@ -87,8 +101,37 @@ const fetchTemplates = async () => {
   }
 }
 
+const fetchProjects = async () => {
+  if (!auth.currentUser) return
+
+  try {
+    const projectsRef = collection(db, 'projects')
+    const q = query(projectsRef)
+    const querySnapshot = await getDocs(q)
+    
+    projects.value = querySnapshot.docs.map(doc => ({
+      ...doc.data(),
+      id: doc.id,
+      createdAt: doc.data().createdAt?.toDate(),
+      updatedAt: doc.data().updatedAt?.toDate()
+    })) as Project[]
+  } catch (error) {
+    console.error('プロジェクト取得エラー:', error)
+  } finally {
+    projectsLoading.value = false
+  }
+}
+
 const handleCreate = () => {
   router.push('/template/create')
+}
+
+const handleCreateProject = () => {
+  router.push('/project/create')
+}
+
+const handleViewProject = (id: string) => {
+  router.push(`/project/${id}`)
 }
 
 const handleEdit = (id: string) => {
@@ -117,7 +160,10 @@ const handleLogout = async () => {
   }
 }
 
-onMounted(fetchTemplates)
+onMounted(() => {
+  fetchTemplates()
+  fetchProjects()
+})
 </script>
 
 <style scoped>
