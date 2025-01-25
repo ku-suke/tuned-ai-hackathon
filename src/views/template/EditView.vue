@@ -78,7 +78,17 @@
             <div class="form-group mb-sm">
               <label class="form-label">固定参照ドキュメント</label>
               <div class="card bg-light text-center p-md">
-                <button class="btn btn-gray mb-sm">アップロード</button>
+                <input
+                  type="file"
+                  ref="fileInput"
+                  @change="(e) => handleFileUpload(e, index)"
+                  accept=".pdf,.txt"
+                  class="hidden"
+                  :id="`file-upload-${index}`"
+                />
+                <label :for="`file-upload-${index}`" class="btn btn-gray mb-sm">
+                  {{ uploadLoading ? '読み込み中...' : 'アップロード' }}
+                </label>
                 <p class="text-sm text-gray">PDFまたはテキストファイル</p>
               </div>
             </div>
@@ -90,7 +100,7 @@
                 :key="docIndex"
               >
                 <span>{{ doc.title }}</span>
-                <button class="btn btn-danger btn-sm">削除</button>
+                <button class="btn btn-danger btn-sm" @click="handleDocumentDelete(index, docIndex)">削除</button>
               </div>
             </div>
           </div>
@@ -103,16 +113,31 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { auth, db } from '@/main'
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { auth, db, storage } from '@/main'
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  serverTimestamp,
+  collection,
+  addDoc
+} from 'firebase/firestore'
+import {
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
+} from 'firebase/storage'
 import type { ProjectTemplate, ProjectTemplateStep, ReferenceDocument } from '@/types/firestore'
 
 const router = useRouter()
 const route = useRoute()
 const loading = ref(true)
+const uploadLoading = ref(false)
 const template = ref<ProjectTemplate | null>(null)
 
 interface StepForm {
+  id?: string // Firestoreに保存された際のID
   title: string
   systemPrompt: string
   userChoicePrompts: string[]
@@ -140,6 +165,7 @@ const fetchTemplate = async () => {
       title.value = data.title
       description.value = data.description
       steps.value = data.steps.map(step => ({
+        id: step.id,
         title: step.title,
         systemPrompt: step.systemPrompt,
         userChoicePrompts: step.userChoicePrompts || [],
@@ -154,17 +180,41 @@ const fetchTemplate = async () => {
   }
 }
 
-const addStep = () => {
-  steps.value.push({
-    title: `ステップ ${steps.value.length + 1}`,
-    systemPrompt: '',
-    userChoicePrompts: [],
-    artifactGenerationPrompt: '',
-    referenceDocuments: []
-  })
+const addStep = async () => {
+  if (!auth.currentUser || !template.value) return
+
+  try {
+    const stepId = crypto.randomUUID()
+    const newStep: StepForm = {
+      id: stepId,
+      title: `ステップ ${steps.value.length + 1}`,
+      systemPrompt: '',
+      userChoicePrompts: [],
+      artifactGenerationPrompt: '',
+      referenceDocuments: []
+    }
+    steps.value.push(newStep)
+  } catch (error) {
+    console.error('ステップ追加エラー:', error)
+    alert('ステップの追加に失敗しました')
+  }
 }
 
-const removeStep = (index: number) => {
+const removeStep = async (index: number) => {
+  if (!auth.currentUser || !template.value) return
+
+  const step = steps.value[index]
+  if (!step) return
+
+  // ファイルの削除
+  try {
+    for (const doc of step.referenceDocuments) {
+      await handleDocumentDelete(index, step.referenceDocuments.indexOf(doc))
+    }
+  } catch (error) {
+    console.error('ファイル削除エラー:', error)
+  }
+
   steps.value.splice(index, 1)
 }
 
@@ -196,6 +246,66 @@ const handlePublish = async () => {
   }
 }
 
+const handleFileUpload = async (event: Event, stepIndex: number) => {
+  if (!auth.currentUser || !template.value) return
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length) return
+
+  const file = input.files[0]
+  const step = steps.value[stepIndex]
+  if (!step || !step.id) return
+
+  uploadLoading.value = true
+  try {
+    const fileName = `${file.name}-${Date.now()}`
+    const filePath = `users/${auth.currentUser.uid}/projectTemplates/${template.value.id}/steps/${step.id}/${fileName}`
+    const fileRef = storageRef(storage, filePath)
+
+    // ファイルをアップロード
+    await uploadBytes(fileRef, file)
+    const downloadUrl = await getDownloadURL(fileRef)
+
+    // referenceDocumentsに追加
+    const newDoc: ReferenceDocument = {
+      id: crypto.randomUUID(),
+      title: file.name,
+      content: downloadUrl,
+      type: file.type.includes('pdf') ? 'pdf' : 'text'
+    }
+    step.referenceDocuments.push(newDoc)
+
+    // 入力をクリア
+    input.value = ''
+  } catch (error) {
+    console.error('ファイルアップロードエラー:', error)
+    alert('ファイルのアップロードに失敗しました')
+  } finally {
+    uploadLoading.value = false
+  }
+}
+
+const handleDocumentDelete = async (stepIndex: number, docIndex: number) => {
+  if (!auth.currentUser || !template.value) return
+
+  const step = steps.value[stepIndex]
+  if (!step || !step.id) return
+
+  const doc = step.referenceDocuments[docIndex]
+  if (!doc) return
+
+  try {
+    // Storageからファイルを削除
+    const fileRef = storageRef(storage, doc.content)
+    await deleteObject(fileRef)
+
+    // referenceDocumentsから削除
+    step.referenceDocuments.splice(docIndex, 1)
+  } catch (error) {
+    console.error('ドキュメント削除エラー:', error)
+    alert('ドキュメントの削除に失敗しました')
+  }
+}
+
 const handleSave = async () => {
   if (!auth.currentUser || !template.value) return
 
@@ -218,7 +328,7 @@ const handleSave = async () => {
       description: description.value.trim(),
       updatedAt: serverTimestamp(),
       steps: steps.value.map((step, index) => ({
-        id: `step${index + 1}`,
+        id: step.id || `step${index + 1}`,
         title: step.title,
         order: index + 1,
         systemPrompt: step.systemPrompt.trim(),
@@ -239,5 +349,7 @@ onMounted(fetchTemplate)
 </script>
 
 <style scoped>
-/* スコープ付きCSSを削除し、共通クラスを使用 */
+.hidden {
+  display: none;
+}
 </style>
