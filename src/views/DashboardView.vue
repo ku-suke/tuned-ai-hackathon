@@ -105,7 +105,7 @@ const fetchProjects = async () => {
   if (!auth.currentUser) return
 
   try {
-    const projectsRef = collection(db, 'projects')
+    const projectsRef = collection(db, `users/${auth.currentUser.uid}/projects`)
     const q = query(projectsRef)
     const querySnapshot = await getDocs(q)
     

@@ -157,7 +157,7 @@ const handleSubmit = async () => {
       steps
     }
 
-    const docRef = await addDoc(collection(db, 'projects'), projectData)
+    const docRef = await addDoc(collection(db, `users/${auth.currentUser.uid}/projects`), projectData)
     router.push(`/project/${docRef.id}`)
   } catch (error) {
     console.error('プロジェクト作成エラー:', error)

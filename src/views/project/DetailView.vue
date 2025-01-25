@@ -174,7 +174,7 @@ const fetchProject = async () => {
   if (!route.params.id) return
 
   try {
-    const projectDoc = await getDoc(doc(db, 'projects', route.params.id as string))
+    const projectDoc = await getDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, route.params.id as string))
     if (!projectDoc.exists()) {
       console.error('プロジェクトが見つかりません')
       return
@@ -227,7 +227,7 @@ const handleSendMessage = async (content: string) => {
     const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
     if (stepIndex === -1) return
 
-    await updateDoc(doc(db, 'projects', project.value.id), {
+    await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
       [`steps.${stepIndex}.conversations`]: arrayUnion(message),
       updatedAt: Timestamp.now()
     })
@@ -244,7 +244,7 @@ const handleSendMessage = async (content: string) => {
       createdAt: new Date()
     }
 
-    await updateDoc(doc(db, 'projects', project.value.id), {
+    await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
       [`steps.${stepIndex}.conversations`]: arrayUnion(aiResponse),
       updatedAt: Timestamp.now()
     })
@@ -277,7 +277,7 @@ const handleToggleDocument = async (doc: { id: string, isEnabled: boolean }) => 
     const docIndex = currentStep.value.documents.findIndex(d => d.id === doc.id)
     if (docIndex === -1) return
 
-    await updateDoc(doc(db, 'projects', project.value.id), {
+    await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
       [`steps.${stepIndex}.documents.${docIndex}.isEnabled`]: !doc.isEnabled,
       updatedAt: Timestamp.now()
     })

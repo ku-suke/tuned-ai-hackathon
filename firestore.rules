@@ -20,8 +20,26 @@ service cloud.firestore {
       allow delete: if false; // ユーザーの削除は管理者のみ
 
       // プロジェクトテンプレート（サブコレクション）
+      // プロジェクトテンプレート（サブコレクション）
       match /projectTemplates/{templateId} {
         allow read, write: if isOwner(userId);
+      }
+
+      // プロジェクト（サブコレクション）
+      match /projects/{projectId} {
+        allow read, write: if isOwner(userId);
+        
+        allow create: if isAuthenticated() && userId == request.auth.uid &&
+          // 新規作成時はテンプレートの存在確認
+          (
+            // プライベートテンプレートの場合
+            (request.resource.data.templateType == 'private' &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)/projectTemplates/$(request.resource.data.templateId)))
+            ||
+            // 公開テンプレートの場合
+            (request.resource.data.templateType == 'published' &&
+             exists(/databases/$(database)/documents/publishedTemplates/$(request.resource.data.templateId)))
+          );
       }
     }
 
@@ -39,22 +57,5 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/users/$(request.auth.uid)/projectTemplates/$(resource.data.originalTemplateId));
     }
 
-    // プロジェクト
-    match /projects/{projectId} {
-      allow read, write: if isAuthenticated() && 
-        resource.data.userId == request.auth.uid;
-      
-      allow create: if isAuthenticated() &&
-        // 新規作成時はテンプレートの存在確認
-        (
-          // プライベートテンプレートの場合
-          (request.resource.data.templateType == 'private' &&
-           exists(/databases/$(database)/documents/users/$(request.auth.uid)/projectTemplates/$(request.resource.data.templateId)))
-          ||
-          // 公開テンプレートの場合
-          (request.resource.data.templateType == 'published' &&
-           exists(/databases/$(database)/documents/publishedTemplates/$(request.resource.data.templateId)))
-        );
-    }
   }
 }
