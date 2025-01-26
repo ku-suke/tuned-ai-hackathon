@@ -126,10 +126,16 @@ h3 {
   justify-content: space-between;
   align-items: center;
   box-shadow: var(--shadow-sm);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
 }
 
 .content {
   padding: var(--space-xl);
+  padding-top: calc(var(--space-xl) + 60px);
   max-width: 1200px;
   margin: 0 auto;
 }

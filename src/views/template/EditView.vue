@@ -40,7 +40,12 @@
         <div class="d-flex flex-column gap-md">
           <div class="card bg-light" v-for="(step, index) in steps" :key="index">
             <div class="d-flex justify-between align-center mb-md">
-              <h3>{{ step.title }}</h3>
+              <input
+                type="text"
+                class="form-input step-title"
+                v-model="step.title"
+                :placeholder="`ステップ ${index + 1}`"
+              >
               <button
                 class="btn btn-danger btn-sm"
                 @click="removeStep(index)"
@@ -351,5 +356,20 @@ onMounted(fetchTemplate)
 <style scoped>
 .hidden {
   display: none;
+}
+
+.step-title {
+  font-size: 1.1rem;
+  font-weight: bold;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: var(--space-xs) var(--space-sm);
+  margin: -var(--space-xs) -var(--space-sm);
+}
+
+.step-title:hover,
+.step-title:focus {
+  border-color: #ddd;
+  background: var(--color-white);
 }
 </style>
