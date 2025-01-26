@@ -1,8 +1,19 @@
 import { onObjectFinalized, StorageEvent } from "firebase-functions/v2/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Storage } from "@google-cloud/storage";
-import type { ProjectTemplate, ProjectTemplateStep, ReferenceDocument } from "./types/firestore";
+import {
+  GoogleGenerativeAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/generative-ai";
+import type {
+  ProjectTemplate,
+  ProjectTemplateStep,
+  ReferenceDocument,
+  ProjectStep,
+} from "./types/firestore";
 
 // Cloud Functions のグローバル設定
 setGlobalOptions({
@@ -18,15 +29,38 @@ admin.initializeApp();
 // Google Cloud Storageクライアントの初期化
 const storage = new Storage();
 
+// Gemini APIの初期化
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+// 安全性の設定
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+];
+
 /**
  * ファイルからテキストを抽出する関数
- */
+*/
 async function extractText(bucket: string, filePath: string, contentType: string): Promise<string> {
   const file = storage.bucket(bucket).file(filePath);
   const [fileContent] = await file.download();
 
   if (contentType === "application/pdf") {
-    // pdf-parseの動的インポート
     const pdfParse = require('pdf-parse');
     const pdfData = await pdfParse(fileContent);
     return pdfData.text;
@@ -47,6 +81,204 @@ function parseFilePath(filePath: string) {
   const [, userId, templateId, stepId, fileName] = match;
   return { userId, templateId, stepId, fileName };
 }
+
+/**
+ * ストリームレスポンスを設定する関数
+ */
+function setStreamingResponse(response: any) {
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+}
+
+/**
+ * プロジェクトステップの取得
+ */
+async function getProjectStep(projectId: string, stepId: string): Promise<ProjectStep | null> {
+  const projectDoc = await admin.firestore()
+    .collection('projects')
+    .doc(projectId)
+    .get();
+
+  if (!projectDoc.exists) return null;
+
+  const project = projectDoc.data() as any;
+  return project.steps.find((step: ProjectStep) => step.id === stepId) || null;
+}
+
+/**
+ * システムプロンプトとファイルを使用したチャットAI
+ */
+export const chatWithContext = onRequest({
+  cors: true
+}, async (req, res) => {
+  try {
+    const { projectId, stepId, message } = req.body;
+    if (!projectId || !stepId || !message) {
+      res.status(400).send('Missing required parameters');
+      return;
+    }
+
+    const step = await getProjectStep(projectId, stepId);
+    if (!step) {
+      res.status(404).send('Step not found');
+      return;
+    }
+
+    // システムプロンプトの構築
+    let prompt = step.templateStepId;
+    
+    // 参照ドキュメントの内容を追加
+    const contextDocs = step.documents
+      .filter(doc => doc.isEnabled)
+      .map(doc => {
+        const refDoc = step.uploadedDocuments.find(ref => ref.id === doc.id);
+        return refDoc ? `Document: ${refDoc.title}\n${refDoc.content}` : '';
+      })
+      .join('\n\n');
+
+    // ストリーミングレスポンスの設定
+    setStreamingResponse(res);
+
+    const chat = model.startChat({
+      history: [],
+      safetySettings,
+    });
+
+    // コンテキストと質問を結合
+    const fullPrompt = `
+System: ${prompt}
+
+Reference Documents:
+${contextDocs}
+
+User Question: ${message}`;
+
+    const result = await chat.sendMessageStream(fullPrompt);
+
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('Error in chatWithContext:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * 直近の会話とユーザー選択肢プロンプトによる回答例生成
+ */
+export const generateExampleResponse = onRequest({
+  cors: true
+}, async (req, res) => {
+  try {
+    const { projectId, stepId, selectedPrompt } = req.body;
+    if (!projectId || !stepId || !selectedPrompt) {
+      res.status(400).send('Missing required parameters');
+      return;
+    }
+
+    const step = await getProjectStep(projectId, stepId);
+    if (!step) {
+      res.status(404).send('Step not found');
+      return;
+    }
+
+    // 直近の会話履歴を取得（最大5件）
+    const recentConversations = step.conversations
+      .slice(-5)
+      .map(conv => `${conv.role}: ${conv.content}`)
+      .join('\n');
+
+    // ストリーミングレスポンスの設定
+    setStreamingResponse(res);
+
+    const chat = model.startChat({
+      history: [],
+      safetySettings,
+    });
+
+    // 会話履歴とプロンプトを結合
+    const fullPrompt = `
+Recent conversations:
+${recentConversations}
+
+Selected Prompt: ${selectedPrompt}`;
+
+    const result = await chat.sendMessageStream(fullPrompt);
+
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('Error in generateExampleResponse:', error);
+    res.status(500).send('Internal server error');
+  }
+});
+
+/**
+ * 会話履歴と成果物指示による成果物生成
+ */
+export const generateArtifact = onRequest({
+  cors: true
+}, async (req, res) => {
+  try {
+    const { projectId, stepId } = req.body;
+    if (!projectId || !stepId) {
+      res.status(400).send('Missing required parameters');
+      return;
+    }
+
+    const step = await getProjectStep(projectId, stepId);
+    if (!step) {
+      res.status(404).send('Step not found');
+      return;
+    }
+
+    // 会話履歴全体を取得
+    const conversationHistory = step.conversations
+      .map(conv => `${conv.role}: ${conv.content}`)
+      .join('\n');
+
+    // ストリーミングレスポンスの設定
+    setStreamingResponse(res);
+
+    const chat = model.startChat({
+      history: [],
+      safetySettings,
+    });
+
+    // 会話履歴と成果物生成指示を結合
+    const fullPrompt = `
+Conversation History:
+${conversationHistory}
+
+Artifact Generation Instructions:
+${step.templateStepId}
+
+Please generate the artifact based on the above context.`;
+
+    const result = await chat.sendMessageStream(fullPrompt);
+
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('Error in generateArtifact:', error);
+    res.status(500).send('Internal server error');
+  }
+});
 
 /**
  * ファイルアップロード完了時のトリガー関数
