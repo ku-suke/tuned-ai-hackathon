@@ -27,6 +27,12 @@
             <div class="d-flex gap-sm">
               <button class="btn btn-warning btn-sm" @click="handleEdit(template.id)">編集</button>
               <button class="btn btn-danger btn-sm" @click="handleDelete(template.id)">削除</button>
+              <button
+                class="btn btn-success btn-sm"
+                @click.stop="handleCreateFromTemplate(template.id)"
+              >
+                このテンプレートでプロジェクトを作成
+              </button>
             </div>
           </div>
         </div>
@@ -36,10 +42,7 @@
       </section>
 
       <section class="projects">
-        <div class="d-flex justify-between align-center">
-          <h2>プロジェクト</h2>
-          <button class="btn btn-success" @click="handleCreateProject">新規作成</button>
-        </div>
+        <h2>プロジェクト</h2>
         <div class="card-grid" v-if="!projectsLoading">
           <div v-if="projects.length === 0" class="no-data">
             プロジェクトがありません
@@ -126,8 +129,8 @@ const handleCreate = () => {
   router.push('/template/create')
 }
 
-const handleCreateProject = () => {
-  router.push('/project/create')
+const handleCreateFromTemplate = (templateId: string) => {
+  router.push(`/project/create?templateId=${templateId}&type=private`)
 }
 
 const handleViewProject = (id: string) => {

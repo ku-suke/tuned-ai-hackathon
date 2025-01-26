@@ -138,7 +138,7 @@
               <p class="artifact-summary">{{ currentStep.artifact.charCount }}文字</p>
               <button 
                 class="view-button"
-                @click="() => handleShowArtifact(currentStep.artifact)"
+                @click="currentStep?.artifact && handleShowArtifact(currentStep.artifact)"
               >
                 表示
               </button>
@@ -158,7 +158,14 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, db } from '@/main'
 import { doc, getDoc, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore'
-import type { Project, ProjectStep, ProjectTemplateStep, ReferenceDocument } from '@/types/firestore'
+import type {
+  Project,
+  ProjectStep,
+  ProjectTemplateStep,
+  ReferenceDocument,
+  ProjectTemplate,
+  PublishedProjectTemplate
+} from '@/types/firestore'
 
 const route = useRoute()
 const router = useRouter()
@@ -167,7 +174,7 @@ const project = ref<Project | null>(null)
 const currentStep = ref<ProjectStep | null>(null)
 const messageInput = ref('')
 const chatMessagesRef = ref<HTMLElement | null>(null)
-const template = ref<any>(null) // テンプレートのデータ
+const template = ref<ProjectTemplate | PublishedProjectTemplate | null>(null) // テンプレートのデータ
 
 // プロジェクトの取得
 const fetchProject = async () => {
@@ -196,7 +203,37 @@ const fetchProject = async () => {
     ))
     
     if (templateDoc.exists()) {
-      template.value = templateDoc.data()
+      const templateData = templateDoc.data()
+      if (templateData) {
+        if (project.value?.templateType === 'private') {
+          template.value = {
+            ...templateData,
+            id: templateDoc.id,
+            title: templateData.title,
+            description: templateData.description,
+            createdAt: templateData.createdAt?.toDate() || new Date(),
+            updatedAt: templateData.updatedAt?.toDate() || new Date(),
+            isPublished: templateData.isPublished || false,
+            publishedTemplateId: templateData.publishedTemplateId,
+            steps: templateData.steps || [],
+          } as ProjectTemplate
+        } else {
+          template.value = {
+            ...templateData,
+            id: templateDoc.id,
+            originalTemplateId: templateData.originalTemplateId,
+            userId: templateData.userId,
+            authorName: templateData.authorName,
+            title: templateData.title,
+            description: templateData.description,
+            publishedAt: templateData.publishedAt?.toDate() || new Date(),
+            updatedAt: templateData.updatedAt?.toDate() || new Date(),
+            categories: templateData.categories || [],
+            steps: templateData.steps || [],
+            usageCount: templateData.usageCount || 0,
+          } as PublishedProjectTemplate
+        }
+      }
     }
 
   } catch (error) {
@@ -261,36 +298,38 @@ const getTemplateStep = (step: ProjectStep): ProjectTemplateStep | undefined => 
 }
 
 // テンプレートのドキュメント情報を取得
-const getTemplateDocument = (step: ProjectStep, doc: { id: string, isEnabled: boolean }): ReferenceDocument | undefined => {
+const getTemplateDocument = (step: ProjectStep | null, doc: { id: string, isEnabled: boolean }): ReferenceDocument | undefined => {
+  if (!step) return undefined
   const templateStep = getTemplateStep(step)
   return templateStep?.referenceDocuments.find(d => d.id === doc.id)
 }
 
 // ドキュメントの有効/無効を切り替え
-const handleToggleDocument = async (doc: { id: string, isEnabled: boolean }) => {
+const handleToggleDocument = async (document: { id: string, isEnabled: boolean }) => {
   if (!project.value || !currentStep.value) return
 
   try {
     const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
     if (stepIndex === -1) return
 
-    const docIndex = currentStep.value.documents.findIndex(d => d.id === doc.id)
+    const docIndex = currentStep.value.documents.findIndex(d => d.id === document.id)
     if (docIndex === -1) return
 
     await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
-      [`steps.${stepIndex}.documents.${docIndex}.isEnabled`]: !doc.isEnabled,
+      [`steps.${stepIndex}.documents.${docIndex}.isEnabled`]: !document.isEnabled,
       updatedAt: Timestamp.now()
     })
 
     // ローカルステートを更新
-    doc.isEnabled = !doc.isEnabled
+    document.isEnabled = !document.isEnabled
   } catch (error) {
     console.error('ドキュメント更新エラー:', error)
   }
 }
 
 // 成果物の表示
-const handleShowArtifact = (artifact: NonNullable<ProjectStep['artifact']>) => {
+const handleShowArtifact = (artifact: ProjectStep['artifact']) => {
+  if (!artifact) return
   // モーダル表示などの実装
   alert(artifact.content)
 }
@@ -317,6 +356,12 @@ onMounted(fetchProject)
 }
 
 .header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 64px;
   background-color: white;
   padding: 1rem 2rem;
   display: flex;
@@ -329,8 +374,9 @@ onMounted(fetchProject)
   display: grid;
   grid-template-columns: 250px 1fr 300px;
   gap: 1rem;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 96px);
   padding: 1rem;
+  margin-top: 64px;
 }
 
 /* 左カラム: ステップ */

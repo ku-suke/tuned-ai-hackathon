@@ -9,26 +9,7 @@
         読み込み中...
       </div>
       <div v-else>
-        <section class="mb-lg" v-if="!selectedTemplate">
-          <h2>テンプレートを選択</h2>
-          <div class="card-grid">
-            <div v-if="templates.length === 0" class="no-data">
-              利用可能なテンプレートがありません
-            </div>
-            <div
-              v-for="template in templates"
-              :key="template.id"
-              class="card clickable"
-              @click="handleSelectTemplate(template)"
-            >
-              <h3>{{ template.title }}</h3>
-              <p class="description">{{ template.description }}</p>
-              <p class="text-gray text-sm">作成者: {{ template.authorName }}</p>
-            </div>
-          </div>
-        </section>
-
-        <section v-else>
+        <section>
           <div class="d-flex justify-between align-center mb-md">
             <h2>プロジェクト情報入力</h2>
             <button class="btn btn-text" @click="handleBack">
@@ -37,7 +18,7 @@
           </div>
 
           <div class="card">
-            <h3 class="mb-md">選択中のテンプレート: {{ selectedTemplate.title }}</h3>
+            <h3 class="mb-md" v-if="selectedTemplate">選択中のテンプレート: {{ selectedTemplate.title }}</h3>
             
             <form @submit.prevent="handleSubmit" class="form">
               <div class="form-group">
@@ -77,35 +58,65 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, db } from '@/main'
-import { collection, query, getDocs, addDoc, Timestamp } from 'firebase/firestore'
-import type { PublishedProjectTemplate, Project, ProjectStep } from '@/types/firestore'
+import { collection, doc, getDoc, addDoc, Timestamp } from 'firebase/firestore'
+import type {
+  PublishedProjectTemplate,
+  Project,
+  ProjectStep,
+  ProjectTemplate,
+  ProjectTemplateStep,
+  ReferenceDocument
+} from '@/types/firestore'
 
 const router = useRouter()
 const loading = ref(true)
 const creating = ref(false)
-const templates = ref<PublishedProjectTemplate[]>([])
-const selectedTemplate = ref<PublishedProjectTemplate | null>(null)
+const selectedTemplate = ref<ProjectTemplate | PublishedProjectTemplate | null>(null)
+const templateId = router.currentRoute.value.query.templateId as string
+const templateType = router.currentRoute.value.query.type as 'private' | 'published'
 
 const form = ref({
   title: '',
   description: ''
 })
 
-const fetchTemplates = async () => {
+const fetchTemplate = async () => {
+  if (!templateId || !auth.currentUser) {
+    router.push('/dashboard')
+    return
+  }
+
   try {
-    const templatesRef = collection(db, 'publishedTemplates')
-    const q = query(templatesRef)
-    const querySnapshot = await getDocs(q)
+    const path = templateType === 'private'
+      ? `users/${auth.currentUser.uid}/projectTemplates`
+      : 'publishedTemplates'
     
-    templates.value = querySnapshot.docs.map(doc => ({
-      ...doc.data(),
-      id: doc.id,
-      publishedAt: doc.data().publishedAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate()
-    })) as PublishedProjectTemplate[]
+    const templateDoc = await getDoc(doc(db, path, templateId))
+    if (!templateDoc.exists()) {
+      console.error('テンプレートが見つかりません')
+      router.push('/dashboard')
+      return
+    }
+
+    const data = templateDoc.data()
+    if (templateType === 'private') {
+      selectedTemplate.value = {
+        ...data,
+        id: templateDoc.id,
+        createdAt: data.createdAt?.toDate(),
+        updatedAt: data.updatedAt?.toDate(),
+      } as ProjectTemplate
+    } else {
+      selectedTemplate.value = {
+        ...data,
+        id: templateDoc.id,
+        publishedAt: data.publishedAt?.toDate(),
+        updatedAt: data.updatedAt?.toDate()
+      } as PublishedProjectTemplate
+    }
   } catch (error) {
     console.error('テンプレート取得エラー:', error)
   } finally {
@@ -132,12 +143,12 @@ const handleSubmit = async () => {
   
   try {
     // プロジェクトステップの初期化
-    const steps: ProjectStep[] = selectedTemplate.value.steps.map(step => ({
+    const steps: ProjectStep[] = selectedTemplate.value.steps.map((step: ProjectTemplateStep) => ({
       id: crypto.randomUUID(),
       templateStepId: step.id,
       order: step.order,
       conversations: [],
-      documents: step.referenceDocuments.map(doc => ({
+      documents: step.referenceDocuments.map((doc: ReferenceDocument) => ({
         id: doc.id,
         isEnabled: true
       })),
@@ -148,7 +159,7 @@ const handleSubmit = async () => {
     const projectData: Omit<Project, 'id'> = {
       userId: auth.currentUser.uid,
       templateId: selectedTemplate.value.id,
-      templateType: 'published',
+      templateType: templateType,
       title: form.value.title,
       description: form.value.description,
       createdAt: Timestamp.now().toDate(),
@@ -167,7 +178,13 @@ const handleSubmit = async () => {
   }
 }
 
-onMounted(fetchTemplates)
+onMounted(fetchTemplate)
+
+watchEffect(() => {
+  if (!loading.value && !selectedTemplate.value) {
+    router.push('/dashboard')
+  }
+})
 </script>
 
 <style scoped>
@@ -178,10 +195,21 @@ onMounted(fetchTemplates)
 }
 
 .header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 64px;
   background-color: white;
   padding: 1rem 2rem;
-  margin-bottom: 2rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.content {
+  max-width: 1200px;
+  margin: 64px auto 0;
+  padding: 2rem 1rem;
 }
 
 .content {
