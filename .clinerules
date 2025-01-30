@@ -1,0 +1,98 @@
+# Project Development Rules
+
+## What is Tuned-AI app?
+
+Tuned-AI is a web application that allows users to create and manage custom AI chat projects whith steps. Users can create custom chat templates, add steps to the templates, and intaract with the chatbot. The app uses Firebase for authentication, Firestore for data storage, and Cloud Functions for backend logic including AI chatbot integration.
+
+## Project Structure
+
+### Frontend (Vue.js 3)
+- Components in `src/components/`
+  - Reusable UI components only
+  - Each component should have a single responsibility
+- Views in `src/views/`
+  - Page components corresponding to routes
+  - Feature-specific views in subdirectories (e.g., `project/`, `template/`)
+- Assets in `src/assets/`
+  - Styles in `styles/` subdirectory
+  - Component-specific styles should use scoped CSS
+- Types in `src/types/`
+  - Shared type definitions
+  - Firestore types must be synchronized with backend
+
+### Backend (Firebase Functions)
+- Functions in `functions/src/`
+- Shared types in `functions/src/types/`
+- Keep function logic modular and single-purpose
+
+## Coding Standards
+
+### TypeScript
+- Use TypeScript for all new code
+- Explicit type annotations for function parameters and returns
+- Avoid `any` type - use proper type definitions
+- Use interfaces for object shapes
+- Enable strict mode in TSConfig
+
+### Vue Components
+- Use Composition API with `<script setup>` syntax
+- Props must have type definitions
+- Emit events with typed payloads
+- Keep template logic simple - complex logic goes to composables
+- Use SFC (Single File Component) pattern
+
+### State Management
+- Use Pinia for global state if needed
+- Component state should be local when possible
+- Document state updates and side effects
+
+## Component Design
+- Follow atomic design principles
+- Keep components small and focused
+- Use props for component configuration
+- Emit events for parent communication
+- Document component APIs in comments
+- Use composables for shared logic
+
+## Type Definitions
+- Keep shared types in `src/types/`
+- Sync Firestore types between frontend and backend
+- Use discriminated unions for complex states
+- Export all types and interfaces
+- Document complex type definitions
+
+## Testing
+- Write unit tests for critical components
+- Use Vitest for testing
+- Mock external dependencies
+- Test component interactions
+- Test Firebase function logic
+- Maintain test coverage for new features
+
+## Documentation
+- Add JSDoc comments for functions and components
+- Document complex business logic
+- Keep README up to date
+- Document API changes
+- Add inline comments for non-obvious code
+- Document state management patterns
+
+## Git Workflow
+- Use feature branches
+- Write descriptive commit messages
+- Review code before merging
+- Keep PRs focused and small
+- Run tests before pushing
+
+## Security
+- No credentials in code
+- Validate user input
+- Use Firebase security rules
+- Follow Firebase best practices
+- Regular security audits
+
+### Sensitive Files
+
+DO NOT read or modify:
+- .env files
+- Any file containing API keys, tokens, or credentials
