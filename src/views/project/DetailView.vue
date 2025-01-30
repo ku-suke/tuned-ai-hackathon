@@ -225,9 +225,6 @@ const processAIStream = async (response: Response, updateMessage: (content: stri
 const updateAIMessage = async (messageId: string, content: string): Promise<void> => {
   if (!project.value || !currentStep.value) return
 
-  const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
-  if (stepIndex === -1) return
-
   // ローカルステートの更新
   const messageIndex = currentStep.value.conversations.findIndex(m => m.id === messageId)
   if (messageIndex !== -1) {
@@ -236,29 +233,10 @@ const updateAIMessage = async (messageId: string, content: string): Promise<void
 
   // Firestoreの更新
   try {
-    const projectRef = doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id)
-    const projectSnap = await getDoc(projectRef)
-    
-    if (!projectSnap.exists()) {
-      throw new Error('Project not found')
-    }
-
-    const projectData = projectSnap.data()
-    const updatedSteps = [...projectData.steps]
-    const updatedConversations = [...updatedSteps[stepIndex].conversations]
-    updatedConversations[messageIndex] = {
-      ...updatedConversations[messageIndex],
-      content
-    }
-
-    updatedSteps[stepIndex] = {
-      ...updatedSteps[stepIndex],
-      conversations: updatedConversations
-    }
-
-    await updateDoc(projectRef, {
-      steps: updatedSteps,
-      updatedAt: Timestamp.now()
+    // Firestore更新
+    const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
+    await updateDoc(stepRef, {
+      [`conversations.${messageIndex}.content`]: content
     })
   } catch (error) {
     console.error('メッセージ更新エラー:', error)
@@ -412,30 +390,13 @@ const handleSendMessage = async (content: string) => {
   }
 
   try {
-    const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
-    if (stepIndex === -1) return
-
-    // プロジェクトの現在の状態を取得
-    const projectRef = doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id)
-    const projectSnap = await getDoc(projectRef)
-    
-    if (!projectSnap.exists()) {
-      throw new Error('Project not found')
-    }
-
-    const projectData = projectSnap.data()
-    const updatedSteps = [...projectData.steps]
-    updatedSteps[stepIndex] = {
-      ...updatedSteps[stepIndex],
-      conversations: [...updatedSteps[stepIndex].conversations, message]
-    }
+    // ステップ参照を作成
+    const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
 
     // ユーザーメッセージを保存
-    await updateDoc(projectRef, {
-      steps: updatedSteps,
-      updatedAt: Timestamp.now()
+    await updateDoc(stepRef, {
+      conversations: arrayUnion(message)
     })
-
     currentStep.value.conversations.push(message)
     messageInput.value = ''
 
@@ -447,18 +408,10 @@ const handleSendMessage = async (content: string) => {
       createdAt: new Date()
     }
 
-    // ステップの会話履歴を更新
-    updatedSteps[stepIndex] = {
-      ...updatedSteps[stepIndex],
-      conversations: [...updatedSteps[stepIndex].conversations, aiMessage]
-    }
-
     // AIメッセージを保存
-    await updateDoc(projectRef, {
-      steps: updatedSteps,
-      updatedAt: Timestamp.now()
+    await updateDoc(stepRef, {
+      conversations: arrayUnion(aiMessage)
     })
-
     currentStep.value.conversations.push(aiMessage)
 
     // APIレスポンスを処理
@@ -548,33 +501,13 @@ const handleToggleDocument = async (document: { id: string, isEnabled: boolean }
   if (!project.value || !currentStep.value) return
 
   try {
-    const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
-    if (stepIndex === -1) return
-
     const docIndex = currentStep.value.documents.findIndex(d => d.id === document.id)
     if (docIndex === -1) return
 
-    const projectRef = doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id)
-    const projectSnap = await getDoc(projectRef)
-    
-    if (!projectSnap.exists()) {
-      throw new Error('Project not found')
-    }
-
-    const projectData = projectSnap.data()
-    const updatedSteps = [...projectData.steps]
-    
-    // 元のステップの構造を維持しながら、documentsを更新
-    updatedSteps[stepIndex] = {
-      ...updatedSteps[stepIndex],
-      documents: updatedSteps[stepIndex].documents.map((doc: { id: string, isEnabled: boolean }) =>
-        doc.id === document.id ? { ...doc, isEnabled: !document.isEnabled } : doc
-      )
-    }
-
-    await updateDoc(projectRef, {
-      steps: updatedSteps,
-      updatedAt: Timestamp.now()
+    // Firestore更新
+    const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
+    await updateDoc(stepRef, {
+      [`documents.${docIndex}.isEnabled`]: !document.isEnabled
     })
 
     // ローカルステートを更新
