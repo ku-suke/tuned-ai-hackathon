@@ -238,10 +238,7 @@ export const generateExampleResponse = onRequest({
       .slice(-5)
       .map(conv => `${conv.role}: ${conv.content}`)
       .join('\n');
-
-    // ストリーミングレスポンスの設定
-    setStreamingResponse(res);
-
+    model.generationConfig.maxOutputTokens = 400;
     const chat = model.startChat({
       history: [],
       safetySettings,
@@ -252,16 +249,27 @@ export const generateExampleResponse = onRequest({
 Recent conversations:
 ${recentConversations}
 
-Selected Prompt: ${selectedPrompt}`;
+outputJson:{ exampleTalkResponse: [ 'example1', 'example2'... ] }`;
 
-    const result = await chat.sendMessageStream(fullPrompt);
+    const result = await chat.sendMessage(fullPrompt);
+    const response = result.response;
+    const text = response.text();
 
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      res.write(`data: ${JSON.stringify({ text })}\n\n`);
-    }
+      // JSON文字列を抽出 ('{' から '}' まで)
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('JSON not found in response');
+      }
 
-    res.end();
+      // JSONをパース
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!parsed.exampleTalkResponse || !Array.isArray(parsed.exampleTalkResponse)) {
+        throw new Error('Invalid response format');
+      }
+
+      // 配列として返す
+      res.json(parsed.exampleTalkResponse);
+
   } catch (error) {
     console.error('Error in generateExampleResponse:', error);
     res.status(500).send('Internal server error');

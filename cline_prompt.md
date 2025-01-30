@@ -1,3 +1,7 @@
+updateAIMessageでレスポンスが帰ってきたら、exampleResponseを呼び出してください。このAPIはサーバー側でこれまでのconversationsを読み込んだうえで、ユーザーが回答を思い付かないときのためにサンプルで短い質問の例をJSON配列で返します。
+
+------
+
 DetailViewで、Projectの中のStepの中のConversationを読み書きする部分で、ProjectRefを使うのは冗長ではないでしょうか
 
 ------

@@ -20,16 +20,10 @@
       <div class="steps-column">
         <h2 class="column-title">ステップ</h2>
         <div class="steps-list">
-          <div 
-            v-for="step in project.steps" 
-            :key="step.id"
-            class="step-item"
-            :class="{
-              'completed': step.artifact,
-              'active': currentStep?.id === step.id
-            }"
-            @click="handleSelectStep(step)"
-          >
+          <div v-for="step in project.steps" :key="step.id" class="step-item" :class="{
+            'completed': step.artifact,
+            'active': currentStep?.id === step.id
+          }" @click="handleSelectStep(step)">
             <div class="step-header">
               <span class="step-number">{{ step.order }}</span>
               <h3>{{ getTemplateStep(step)?.title }}</h3>
@@ -54,42 +48,27 @@
               {{ getTemplateStep(currentStep)?.systemPrompt }}
             </div>
             <template v-if="currentStep.conversations.length > 0">
-              <div 
-                v-for="message in currentStep.conversations" 
-                :key="message.id"
-                class="message"
-                :class="message.role"
-              >
+              <div v-for="message in currentStep.conversations" :key="message.id" class="message" :class="message.role">
                 {{ message.content }}
               </div>
             </template>
             <div v-else class="message system">
-              {{ getTemplateStep(currentStep)?.userChoicePrompts?.length ? '以下から選択して会話を開始してください：' : '会話を開始してください' }}
+              会話を開始してください
             </div>
           </div>
 
           <div class="chat-input">
-            <div v-if="getTemplateStep(currentStep)?.userChoicePrompts" class="preset-buttons">
-              <button 
-                v-for="prompt in getTemplateStep(currentStep)?.userChoicePrompts"
-                :key="prompt"
-                class="preset-button"
-                @click="() => handleSendMessage(prompt)"
-              >
+            <div v-if="currentStep.stepState?.generatedChoices?.length" class="preset-buttons">
+              <button v-for="prompt in currentStep.stepState?.generatedChoices" :key="prompt"
+                class="preset-button" @click="() => handleSendMessage(prompt)">
                 {{ prompt }}
               </button>
             </div>
             <div class="input-container">
-              <textarea 
-                v-model="messageInput"
-                placeholder="メッセージを入力..."
-                @keydown.enter.prevent="handleSendMessage(messageInput)"
-              ></textarea>
-              <button 
-                class="send-button"
-                @click="() => handleSendMessage(messageInput)"
-                :disabled="!messageInput.trim()"
-              >
+              <textarea v-model="messageInput" placeholder="メッセージを入力..."
+                @keydown.enter.prevent="handleSendMessage(messageInput)"></textarea>
+              <button class="send-button" @click="() => handleSendMessage(messageInput)"
+                :disabled="!messageInput.trim()">
                 送信
               </button>
             </div>
@@ -105,21 +84,13 @@
         <div class="documents-section">
           <h2 class="column-title">参照ドキュメント</h2>
           <div class="document-list">
-            <div 
-              v-for="doc in currentStep?.documents"
-              :key="doc.id"
-              class="document-item"
-            >
+            <div v-for="doc in currentStep?.documents" :key="doc.id" class="document-item">
               <div class="document-info">
                 <span class="document-name">
                   {{ getTemplateDocument(currentStep, doc)?.title }}
                 </span>
                 <label class="toggle">
-                  <input 
-                    type="checkbox"
-                    :checked="doc.isEnabled"
-                    @change="() => handleToggleDocument(doc)"
-                  >
+                  <input type="checkbox" :checked="doc.isEnabled" @change="() => handleToggleDocument(doc)">
                   <span class="slider"></span>
                 </label>
               </div>
@@ -136,10 +107,7 @@
             <div v-if="currentStep?.artifact" class="artifact-item">
               <h4>{{ currentStep.artifact.title }}</h4>
               <p class="artifact-summary">{{ currentStep.artifact.charCount }}文字</p>
-              <button 
-                class="view-button"
-                @click="currentStep?.artifact && handleShowArtifact(currentStep.artifact)"
-              >
+              <button class="view-button" @click="currentStep?.artifact && handleShowArtifact(currentStep.artifact)">
                 表示
               </button>
             </div>
@@ -195,7 +163,7 @@ const processAIStream = async (response: Response, updateMessage: (content: stri
   while (true) {
     const { value, done } = await reader.read()
     if (done) break
-    
+
     const chunk = decoder.decode(value)
     buffer += chunk
 
@@ -265,7 +233,7 @@ const callChatAPI = async (userMessage: string): Promise<Response | null> => {
 }
 
 // 回答例生成APIの呼び出し
-const callExampleResponseAPI = async (selectedPrompt: string): Promise<Response | null> => {
+const callExampleResponseAPI = async (): Promise<Response | null> => {
   if (!project.value || !currentStep.value) return null
 
   const response = await fetch(API_ENDPOINTS.generateExampleResponse, {
@@ -277,31 +245,10 @@ const callExampleResponseAPI = async (selectedPrompt: string): Promise<Response 
     body: JSON.stringify({
       projectId: project.value.id,
       stepId: currentStep.value.id,
-      selectedPrompt
     })
   })
 
   if (!response.ok) throw new Error('Example Response API error')
-  return response
-}
-
-// 成果物生成APIの呼び出し
-const callArtifactAPI = async (): Promise<Response | null> => {
-  if (!project.value || !currentStep.value) return null
-
-  const response = await fetch(API_ENDPOINTS.generateArtifact, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-    },
-    body: JSON.stringify({
-      projectId: project.value.id,
-      stepId: currentStep.value.id
-    })
-  })
-
-  if (!response.ok) throw new Error('Artifact API error')
   return response
 }
 
@@ -325,12 +272,12 @@ const fetchProject = async () => {
     } as Project
 
     // テンプレートの取得
-    const templateDoc = await getDoc(doc(db, 
-      project.value.templateType === 'private' 
+    const templateDoc = await getDoc(doc(db,
+      project.value.templateType === 'private'
         ? `users/${project.value.userId}/projectTemplates/${project.value.templateId}`
         : `publishedTemplates/${project.value.templateId}`
     ))
-    
+
     if (templateDoc.exists()) {
       const templateData = templateDoc.data()
       if (templateData) {
@@ -374,7 +321,11 @@ const fetchProject = async () => {
 
 // ステップ選択
 const handleSelectStep = (step: ProjectStep) => {
-  currentStep.value = step
+  // stepStateの初期化確認
+  if (!step.stepState) {
+    step.stepState = { generatedChoices: [] };
+  }
+  currentStep.value = step;
 }
 
 // メッセージ送信
@@ -415,58 +366,34 @@ const handleSendMessage = async (content: string) => {
     currentStep.value.conversations.push(aiMessage)
 
     // APIレスポンスを処理
-    let response
-    const templateStep = getTemplateStep(currentStep.value)
-    
-    /*/*if (templateStep?.artifactGenerationPrompt && currentStep.value.conversations.length > 1) {
-      // 成果物生成
-      response = await callArtifactAPI()
-      if (response) {
-        const content = await processAIStream(response,
-          (content) => updateAIMessage(aiMessage.id, content))
-        
-        const summaryMatch = content.match(/---\s*概要\s*---\s*([\s\S]*?)(?=---|\s*$)/)
-        const mainContentMatch = content.match(/---\s*本文\s*---\s*([\s\S]*?)(?=---|\s*$)/)
-        
-        const summary = summaryMatch ? summaryMatch[1].trim() : ''
-        const mainContent = mainContentMatch ? mainContentMatch[1].trim() : content
-
-        // 成果物を保存
-        await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
-          [`steps.${stepIndex}.artifact`]: {
-            title: templateStep.title,
-            content: mainContent,
-            summary: summary,
-            charCount: mainContent.length,
-            createdAt: Timestamp.now()
-          },
-          updatedAt: Timestamp.now()
-        })
-
-        if (currentStep.value) {
-          currentStep.value.artifact = {
-            title: templateStep.title,
-            content: mainContent,
-            summary: summary,
-            charCount: mainContent.length,
-            createdAt: new Date()
+    const response = await callChatAPI(content)
+    if (response) {
+      const finalMessage = await processAIStream(response,
+        (content) => updateAIMessage(aiMessage.id, content))
+      
+      // 回答が返ってきた後に例示レスポンスを生成
+      const exampleResponse = await callExampleResponseAPI()
+      if (exampleResponse) {
+        const examples = await exampleResponse.json()
+        if (Array.isArray(examples)) {
+          // ステップの状態を更新
+          const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
+          
+          // stepStateの初期化確認
+          if (!currentStep.value.stepState) {
+            currentStep.value.stepState = { generatedChoices: [] };
           }
+
+          await updateDoc(stepRef, {
+            stepState: {
+              ...currentStep.value.stepState,
+              generatedChoices: examples
+            }
+          })
+          
+          // ローカルステートも更新
+          currentStep.value.stepState.generatedChoices = examples
         }
-      }
-    } else*/
-     if (templateStep?.userChoicePrompts && !content.includes('回答例：')) {
-      // 回答例生成
-      response = await callExampleResponseAPI(content)
-      if (response) {
-        await processAIStream(response,
-          (content) => updateAIMessage(aiMessage.id, content))
-      }
-    } else {
-      // 通常のチャット
-      response = await callChatAPI(content)
-      if (response) {
-        await processAIStream(response,
-          (content) => updateAIMessage(aiMessage.id, content))
       }
     }
 
