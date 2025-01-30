@@ -1,5 +1,6 @@
 import { onObjectFinalized, StorageEvent } from "firebase-functions/v2/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { defineString } from "firebase-functions/params";
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Storage } from "@google-cloud/storage";
@@ -9,6 +10,7 @@ import {
   HarmBlockThreshold,
 } from "@google/generative-ai";
 import type {
+  Project,
   ProjectTemplate,
   ProjectTemplateStep,
   ReferenceDocument,
@@ -30,8 +32,9 @@ admin.initializeApp();
 const storage = new Storage();
 
 // Gemini APIの初期化
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const geminiApiKey = defineString("GEMINI_API_KEY");
+const genAI = new GoogleGenerativeAI(geminiApiKey.value()  || "");
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
 // 安全性の設定
 const safetySettings = [
@@ -96,16 +99,35 @@ function setStreamingResponse(response: any) {
 /**
  * プロジェクトステップの取得
  */
-async function getProjectStep(projectId: string, stepId: string): Promise<ProjectStep | null> {
+async function getProjectStep(userId: string, projectId: string, stepId: string): Promise<ProjectStep | null> {
   const projectDoc = await admin.firestore()
+    .collection('users')
+    .doc(userId)
     .collection('projects')
     .doc(projectId)
     .get();
 
   if (!projectDoc.exists) return null;
 
-  const project = projectDoc.data() as any;
-  return project.steps.find((step: ProjectStep) => step.id === stepId) || null;
+  const data = projectDoc.data();
+  if (!data || !Array.isArray(data.steps)) return null;
+
+  const project = {
+    ...data,
+    id: projectDoc.id,
+    createdAt: data.createdAt?.toDate(),
+    updatedAt: data.updatedAt?.toDate(),
+    steps: data.steps.map((step: any) => ({
+      ...step,
+      createdAt: step.createdAt?.toDate(),
+      conversations: step.conversations?.map((conv: any) => ({
+        ...conv,
+        createdAt: conv.createdAt?.toDate()
+      })) || []
+    }))
+  } as Project;
+
+  return project.steps.find(step => step.id === stepId) || null;
 }
 
 /**
@@ -115,13 +137,24 @@ export const chatWithContext = onRequest({
   cors: true
 }, async (req, res) => {
   try {
+    // 認証情報の確認
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).send('Unauthorized');
+      return;
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
+
     const { projectId, stepId, message } = req.body;
     if (!projectId || !stepId || !message) {
       res.status(400).send('Missing required parameters');
       return;
     }
 
-    const step = await getProjectStep(projectId, stepId);
+    const step = await getProjectStep(userId, projectId, stepId);
     if (!step) {
       res.status(404).send('Step not found');
       return;
@@ -177,13 +210,24 @@ export const generateExampleResponse = onRequest({
   cors: true
 }, async (req, res) => {
   try {
+    // 認証情報の確認
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).send('Unauthorized');
+      return;
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
+
     const { projectId, stepId, selectedPrompt } = req.body;
     if (!projectId || !stepId || !selectedPrompt) {
       res.status(400).send('Missing required parameters');
       return;
     }
 
-    const step = await getProjectStep(projectId, stepId);
+    const step = await getProjectStep(userId, projectId, stepId);
     if (!step) {
       res.status(404).send('Step not found');
       return;
@@ -231,13 +275,24 @@ export const generateArtifact = onRequest({
   cors: true
 }, async (req, res) => {
   try {
+    // 認証情報の確認
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).send('Unauthorized');
+      return;
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
+
     const { projectId, stepId } = req.body;
     if (!projectId || !stepId) {
       res.status(400).send('Missing required parameters');
       return;
     }
 
-    const step = await getProjectStep(projectId, stepId);
+    const step = await getProjectStep(userId, projectId, stepId);
     if (!step) {
       res.status(404).send('Step not found');
       return;

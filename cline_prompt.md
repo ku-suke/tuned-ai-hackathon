@@ -1,3 +1,20 @@
+このプロジェクトはVue.js 3とFirebaseを使用して開発されます。AIとやり取りを行うAPIをfunctions/src/index.tsに3つ作りました。
+
+ - システムプロンプト、選択済みのファイルを使ったチャットAI
+ - チャットが行われた後、AIの問いかけに対して人間がうまく答えられなかった場合に、直近の会話とユーザー選択肢プロンプトを利用した回答例AI
+ - 会話履歴と成果物指示のプロンプトを元に成果物を生成するAI
+
+それぞれのURLは以下の通りです。
+
+Function URL (chatWithContext(us-west1)): https://us-west1-tuned-ai-prod.cloudfunctions.net/chatWithContext
+Function URL (generateExampleResponse(us-west1)): https://us-west1-tuned-ai-prod.cloudfunctions.net/generateExampleResponse
+Function URL (generateArtifact(us-west1)): https://us-west1-tuned-ai-prod.cloudfunctions.net/generateArtifact
+
+これらのAIと通信するクライアントサイドの実装をDetailViewで進めてください。なお、stram形式でのレスポンスのため、fetchで呼び出すことを想定しています。
+後ほどAPIを変更して認証ヘッダを検証する予定なので今はまだ検証していませんが通信時には認証ヘッダを追加してください。
+
+--------
+
 このプロジェクトはVue.js 3とFirebaseを使用して開発されます。AIを活用した専門家ユーザー（例：マーケティングコンサルタント）と顧客ユーザー間の共同プロジェクトのためのWebアプリケーションです。Vueのファイル群はsrcのなかにあります。PoCのため一人のユーザーが専門家としても顧客ユーザーとしても機能するためRoleなどはありません。
 
 現在、AIとスムーズに共同作業するためのプロジェクトテンプレートおよび、テンプレートから作成したプロジェクトを管理する機能を実装しています。プロジェクトテンプレートは、ステップごとにAIとの対話を行い、成果物を生成するためのプロンプトを定義します。プロジェクトは、プロジェクトテンプレートを元に作成され、各ステップでAIと対話しながら進行します。

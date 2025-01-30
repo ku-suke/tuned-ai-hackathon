@@ -164,8 +164,15 @@ import type {
   ProjectTemplateStep,
   ReferenceDocument,
   ProjectTemplate,
-  PublishedProjectTemplate
+  PublishedProjectTemplate,
+  Conversation
 } from '@/types/firestore'
+
+const API_ENDPOINTS = {
+  chatWithContext: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/chatWithContext',
+  generateExampleResponse: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/generateExampleResponse',
+  generateArtifact: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/generateArtifact'
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -175,6 +182,150 @@ const currentStep = ref<ProjectStep | null>(null)
 const messageInput = ref('')
 const chatMessagesRef = ref<HTMLElement | null>(null)
 const template = ref<ProjectTemplate | PublishedProjectTemplate | null>(null) // テンプレートのデータ
+const isGenerating = ref(false)
+
+// AIストリームレスポンスの処理
+const processAIStream = async (response: Response, updateMessage: (content: string) => void) => {
+  if (!response.body) throw new Error('No response body')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalMessage = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    
+    const chunk = decoder.decode(value)
+    buffer += chunk
+
+    // SSEメッセージの処理
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (data.text) {
+            finalMessage += data.text
+            updateMessage(finalMessage)
+          }
+        } catch (e) {
+          console.error('JSON parse error:', e)
+        }
+      }
+    }
+  }
+
+  return finalMessage
+}
+
+// AIメッセージの更新
+const updateAIMessage = async (messageId: string, content: string): Promise<void> => {
+  if (!project.value || !currentStep.value) return
+
+  const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
+  if (stepIndex === -1) return
+
+  // ローカルステートの更新
+  const messageIndex = currentStep.value.conversations.findIndex(m => m.id === messageId)
+  if (messageIndex !== -1) {
+    currentStep.value.conversations[messageIndex].content = content
+  }
+
+  // Firestoreの更新
+  try {
+    const projectRef = doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id)
+    const projectSnap = await getDoc(projectRef)
+    
+    if (!projectSnap.exists()) {
+      throw new Error('Project not found')
+    }
+
+    const projectData = projectSnap.data()
+    const updatedSteps = [...projectData.steps]
+    const updatedConversations = [...updatedSteps[stepIndex].conversations]
+    updatedConversations[messageIndex] = {
+      ...updatedConversations[messageIndex],
+      content
+    }
+
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      conversations: updatedConversations
+    }
+
+    await updateDoc(projectRef, {
+      steps: updatedSteps,
+      updatedAt: Timestamp.now()
+    })
+  } catch (error) {
+    console.error('メッセージ更新エラー:', error)
+  }
+}
+
+// チャットAPIの呼び出し
+const callChatAPI = async (userMessage: string): Promise<Response | null> => {
+  if (!project.value || !currentStep.value) return null
+
+  const response = await fetch(API_ENDPOINTS.chatWithContext, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
+    },
+    body: JSON.stringify({
+      projectId: project.value.id,
+      stepId: currentStep.value.id,
+      message: userMessage
+    })
+  })
+
+  if (!response.ok) throw new Error('Chat API error')
+  return response
+}
+
+// 回答例生成APIの呼び出し
+const callExampleResponseAPI = async (selectedPrompt: string): Promise<Response | null> => {
+  if (!project.value || !currentStep.value) return null
+
+  const response = await fetch(API_ENDPOINTS.generateExampleResponse, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
+    },
+    body: JSON.stringify({
+      projectId: project.value.id,
+      stepId: currentStep.value.id,
+      selectedPrompt
+    })
+  })
+
+  if (!response.ok) throw new Error('Example Response API error')
+  return response
+}
+
+// 成果物生成APIの呼び出し
+const callArtifactAPI = async (): Promise<Response | null> => {
+  if (!project.value || !currentStep.value) return null
+
+  const response = await fetch(API_ENDPOINTS.generateArtifact, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
+    },
+    body: JSON.stringify({
+      projectId: project.value.id,
+      stepId: currentStep.value.id
+    })
+  })
+
+  if (!response.ok) throw new Error('Artifact API error')
+  return response
+}
 
 // プロジェクトの取得
 const fetchProject = async () => {
@@ -250,45 +401,133 @@ const handleSelectStep = (step: ProjectStep) => {
 
 // メッセージ送信
 const handleSendMessage = async (content: string) => {
-  if (!content.trim() || !project.value || !currentStep.value) return
+  if (!content.trim() || !project.value || !currentStep.value || isGenerating.value) return
 
-  const message = {
+  isGenerating.value = true
+  const message: Conversation = {
     id: crypto.randomUUID(),
-    role: 'user' as const,
+    role: 'user',
     content: content.trim(),
     createdAt: new Date()
   }
 
-  // Firestoreを更新
   try {
     const stepIndex = project.value.steps.findIndex(s => s.id === currentStep.value?.id)
     if (stepIndex === -1) return
 
-    await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
-      [`steps.${stepIndex}.conversations`]: arrayUnion(message),
+    // プロジェクトの現在の状態を取得
+    const projectRef = doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id)
+    const projectSnap = await getDoc(projectRef)
+    
+    if (!projectSnap.exists()) {
+      throw new Error('Project not found')
+    }
+
+    const projectData = projectSnap.data()
+    const updatedSteps = [...projectData.steps]
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      conversations: [...updatedSteps[stepIndex].conversations, message]
+    }
+
+    // ユーザーメッセージを保存
+    await updateDoc(projectRef, {
+      steps: updatedSteps,
       updatedAt: Timestamp.now()
     })
 
-    // ローカルステートを更新
     currentStep.value.conversations.push(message)
     messageInput.value = ''
 
-    // AIの応答をシミュレート（実際にはAPIを呼び出す）
-    const aiResponse = {
+    // AIメッセージを作成
+    const aiMessage: Conversation = {
       id: crypto.randomUUID(),
-      role: 'assistant' as const,
-      content: '申し訳ありませんが、現在AIは準備中です。もう少々お待ちください。',
+      role: 'assistant',
+      content: '',
       createdAt: new Date()
     }
 
-    await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
-      [`steps.${stepIndex}.conversations`]: arrayUnion(aiResponse),
+    // ステップの会話履歴を更新
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      conversations: [...updatedSteps[stepIndex].conversations, aiMessage]
+    }
+
+    // AIメッセージを保存
+    await updateDoc(projectRef, {
+      steps: updatedSteps,
       updatedAt: Timestamp.now()
     })
 
-    currentStep.value.conversations.push(aiResponse)
+    currentStep.value.conversations.push(aiMessage)
+
+    // APIレスポンスを処理
+    let response
+    const templateStep = getTemplateStep(currentStep.value)
+    
+    /*/*if (templateStep?.artifactGenerationPrompt && currentStep.value.conversations.length > 1) {
+      // 成果物生成
+      response = await callArtifactAPI()
+      if (response) {
+        const content = await processAIStream(response,
+          (content) => updateAIMessage(aiMessage.id, content))
+        
+        const summaryMatch = content.match(/---\s*概要\s*---\s*([\s\S]*?)(?=---|\s*$)/)
+        const mainContentMatch = content.match(/---\s*本文\s*---\s*([\s\S]*?)(?=---|\s*$)/)
+        
+        const summary = summaryMatch ? summaryMatch[1].trim() : ''
+        const mainContent = mainContentMatch ? mainContentMatch[1].trim() : content
+
+        // 成果物を保存
+        await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
+          [`steps.${stepIndex}.artifact`]: {
+            title: templateStep.title,
+            content: mainContent,
+            summary: summary,
+            charCount: mainContent.length,
+            createdAt: Timestamp.now()
+          },
+          updatedAt: Timestamp.now()
+        })
+
+        if (currentStep.value) {
+          currentStep.value.artifact = {
+            title: templateStep.title,
+            content: mainContent,
+            summary: summary,
+            charCount: mainContent.length,
+            createdAt: new Date()
+          }
+        }
+      }
+    } else*/
+     if (templateStep?.userChoicePrompts && !content.includes('回答例：')) {
+      // 回答例生成
+      response = await callExampleResponseAPI(content)
+      if (response) {
+        await processAIStream(response,
+          (content) => updateAIMessage(aiMessage.id, content))
+      }
+    } else {
+      // 通常のチャット
+      response = await callChatAPI(content)
+      if (response) {
+        await processAIStream(response,
+          (content) => updateAIMessage(aiMessage.id, content))
+      }
+    }
+
   } catch (error) {
     console.error('メッセージ送信エラー:', error)
+    // エラーメッセージを表示
+    if (currentStep.value?.conversations.length) {
+      const lastMessage = currentStep.value.conversations[currentStep.value.conversations.length - 1]
+      if (lastMessage.role === 'assistant') {
+        await updateAIMessage(lastMessage.id, 'エラーが発生しました。もう一度お試しください。')
+      }
+    }
+  } finally {
+    isGenerating.value = false
   }
 }
 
@@ -315,8 +554,26 @@ const handleToggleDocument = async (document: { id: string, isEnabled: boolean }
     const docIndex = currentStep.value.documents.findIndex(d => d.id === document.id)
     if (docIndex === -1) return
 
-    await updateDoc(doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id), {
-      [`steps.${stepIndex}.documents.${docIndex}.isEnabled`]: !document.isEnabled,
+    const projectRef = doc(db, `users/${auth.currentUser?.uid}/projects`, project.value.id)
+    const projectSnap = await getDoc(projectRef)
+    
+    if (!projectSnap.exists()) {
+      throw new Error('Project not found')
+    }
+
+    const projectData = projectSnap.data()
+    const updatedSteps = [...projectData.steps]
+    
+    // 元のステップの構造を維持しながら、documentsを更新
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      documents: updatedSteps[stepIndex].documents.map((doc: { id: string, isEnabled: boolean }) =>
+        doc.id === document.id ? { ...doc, isEnabled: !document.isEnabled } : doc
+      )
+    }
+
+    await updateDoc(projectRef, {
+      steps: updatedSteps,
       updatedAt: Timestamp.now()
     })
 
@@ -349,321 +606,6 @@ watch(() => currentStep.value?.conversations, async () => {
 onMounted(fetchProject)
 </script>
 
-<style scoped>
-.project-detail {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
-
-.header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  height: 64px;
-  background-color: white;
-  padding: 1rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.main-content {
-  display: grid;
-  grid-template-columns: 250px 1fr 300px;
-  gap: 1rem;
-  height: calc(100vh - 96px);
-  padding: 1rem;
-  margin-top: 64px;
-}
-
-/* 左カラム: ステップ */
-.steps-column {
-  background: white;
-  border-radius: 8px;
-  padding: 1rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.steps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.step-item {
-  padding: 1rem;
-  border-radius: 4px;
-  background-color: #f8f9fa;
-  cursor: pointer;
-}
-
-.step-item.completed {
-  border-left: 4px solid #4CAF50;
-}
-
-.step-item.active {
-  border-left: 4px solid #007bff;
-  background-color: #f0f7ff;
-}
-
-.step-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.step-number {
-  background-color: #6c757d;
-  color: white;
-  width: 24px;
-  height: 24px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.875rem;
-}
-
-.step-summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  color: #666;
-}
-
-/* 中央カラム: チャット */
-.chat-column {
-  display: flex;
-  flex-direction: column;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.chat-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
-}
-
-.message {
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  border-radius: 4px;
-  max-width: 80%;
-}
-
-.message.system {
-  background-color: #f8f9fa;
-  margin-left: auto;
-  margin-right: auto;
-  color: #666;
-}
-
-.message.assistant {
-  background-color: #f0f7ff;
-  margin-right: auto;
-}
-
-.message.user {
-  background-color: #e9ecef;
-  margin-left: auto;
-}
-
-.chat-input {
-  padding: 1rem;
-  border-top: 1px solid #ddd;
-}
-
-.preset-buttons {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-}
-
-.preset-button {
-  padding: 0.25rem 0.75rem;
-  background-color: #e9ecef;
-  border: none;
-  border-radius: 16px;
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.preset-button:hover {
-  background-color: #dee2e6;
-}
-
-.input-container {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.input-container textarea {
-  flex: 1;
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  resize: none;
-  height: 80px;
-}
-
-/* 右カラム: ドキュメント */
-.documents-column {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.documents-section,
-.artifacts-section {
-  background: white;
-  border-radius: 8px;
-  padding: 1rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.document-list,
-.artifact-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.document-item,
-.artifact-item {
-  padding: 0.75rem;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-}
-
-.document-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.25rem;
-}
-
-.document-name {
-  font-weight: 500;
-}
-
-.document-summary,
-.artifact-summary {
-  font-size: 0.875rem;
-  color: #666;
-  margin: 0;
-}
-
-/* トグルスイッチ */
-.toggle {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 20px;
-}
-
-.toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  transition: .4s;
-  border-radius: 20px;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  transition: .4s;
-  border-radius: 50%;
-}
-
-input:checked + .slider {
-  background-color: #4CAF50;
-}
-
-input:checked + .slider:before {
-  transform: translateX(20px);
-}
-
-.view-button {
-  padding: 0.25rem 0.5rem;
-  background-color: #6c757d;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-/* その他 */
-.column-title {
-  margin: 0 0 1rem 0;
-  font-size: 1.1rem;
-  color: #333;
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-h4 {
-  margin: 0 0 0.25rem 0;
-  font-size: 1rem;
-}
-
-.no-step-selected {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #666;
-}
-
-.loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #666;
-}
-
-.no-data {
-  text-align: center;
-  color: #666;
-  padding: 2rem;
-}
+<style>
+@import '@/assets/styles/DetailView.css';
 </style>
