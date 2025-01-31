@@ -158,21 +158,11 @@ const handleSubmit = async () => {
     const projectsRef = collection(db, `users/${auth.currentUser.uid}/projects`)
     const projectDoc = await addDoc(projectsRef, projectData)
 
-    // テンプレートのステップを取得
-    const stepsPath = templateType === 'private'
-      ? `users/${auth.currentUser.uid}/projectTemplates/${selectedTemplate.value.id}/steps`
-      : `publishedTemplates/${selectedTemplate.value.id}/steps`
-    
-    const templateStepsRef = collection(db, stepsPath)
-    const templateStepsQuery = query(templateStepsRef, orderBy('order'))
-    const templateStepsSnapshot = await getDocs(templateStepsQuery)
-    
+    // テンプレートのステップを取得してプロジェクトのステップを作成
+    const templateSteps = selectedTemplate.value.steps
+
     // ステップの作成
-    for (const templateStepDoc of templateStepsSnapshot.docs) {
-      const templateStep = {
-        ...templateStepDoc.data(),
-        id: templateStepDoc.id
-      } as ProjectTemplateStep
+    for (const templateStep of templateSteps) {
       const stepData: Omit<ProjectStep, 'id'> = {
         templateStepId: templateStep.id,
         order: templateStep.order,

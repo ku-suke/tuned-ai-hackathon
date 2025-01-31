@@ -10,9 +10,7 @@ import {
   HarmBlockThreshold,
 } from "@google/generative-ai";
 import type {
-  Project,
   ProjectTemplate,
-  ProjectTemplateStep,
   ReferenceDocument,
   ProjectStep,
 } from "./types/firestore";
@@ -100,34 +98,28 @@ function setStreamingResponse(response: any) {
  * プロジェクトステップの取得
  */
 async function getProjectStep(userId: string, projectId: string, stepId: string): Promise<ProjectStep | null> {
-  const projectDoc = await admin.firestore()
+  const stepDoc = await admin.firestore()
     .collection('users')
     .doc(userId)
     .collection('projects')
     .doc(projectId)
+    .collection('steps')
+    .doc(stepId)
     .get();
 
-  if (!projectDoc.exists) return null;
+  if (!stepDoc.exists) return null;
 
-  const data = projectDoc.data();
-  if (!data || !Array.isArray(data.steps)) return null;
+  const data = stepDoc.data();
+  if (!data) return null;
 
-  const project = {
+  return {
     ...data,
-    id: projectDoc.id,
-    createdAt: data.createdAt?.toDate(),
-    updatedAt: data.updatedAt?.toDate(),
-    steps: data.steps.map((step: any) => ({
-      ...step,
-      createdAt: step.createdAt?.toDate(),
-      conversations: step.conversations?.map((conv: any) => ({
-        ...conv,
-        createdAt: conv.createdAt?.toDate()
-      })) || []
-    }))
-  } as Project;
-
-  return project.steps.find(step => step.id === stepId) || null;
+    id: stepDoc.id,
+    conversations: data.conversations?.map((conv: any) => ({
+      ...conv,
+      createdAt: conv.createdAt?.toDate()
+    })) || []
+  } as ProjectStep;
 }
 
 /**
@@ -383,11 +375,18 @@ export const onFileUploaded = onObjectFinalized({
         throw new Error("Template document does not exist");
       }
 
-      const template = doc.data() as ProjectTemplate;
-      const steps = template.steps || [];
+      const templateData = doc.data();
+      if (!templateData) {
+        throw new Error("Template data is missing");
+      }
+
+      const template = {
+        ...templateData,
+        id: doc.id,
+      } as ProjectTemplate;
 
       // 該当するステップの更新
-      const updatedSteps = steps.map((step: ProjectTemplateStep) => {
+      const updatedSteps = template.steps.map((step) => {
         if (step.id === stepId) {
           // 新しいリファレンスドキュメントの作成
           const newDoc: ReferenceDocument = {

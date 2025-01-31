@@ -38,7 +38,7 @@
         </div>
 
         <div class="d-flex flex-column gap-md">
-          <div class="card bg-light" v-for="(step, index) in steps" :key="index">
+          <div class="card bg-light" v-for="(step, index) in steps" :key="step.id">
             <div class="d-flex justify-between align-center mb-md">
               <input
                 type="text"
@@ -102,7 +102,7 @@
               <div
                 class="card bg-light d-flex justify-between align-center"
                 v-for="(doc, docIndex) in step.referenceDocuments"
-                :key="docIndex"
+                :key="doc.id"
               >
                 <span>{{ doc.title }}</span>
                 <button class="btn btn-danger btn-sm" @click="handleDocumentDelete(index, docIndex)">削除</button>
@@ -122,14 +122,8 @@ import { auth, db, storage } from '@/main'
 import {
   doc,
   getDoc,
-  getDocs,
   updateDoc,
-  serverTimestamp,
-  collection,
-  addDoc,
-  writeBatch,
-  query,
-  orderBy
+  serverTimestamp
 } from 'firebase/firestore'
 import {
   ref as storageRef,
@@ -144,19 +138,9 @@ const route = useRoute()
 const loading = ref(true)
 const uploadLoading = ref(false)
 const template = ref<ProjectTemplate | null>(null)
-
-interface StepForm {
-  id?: string // Firestoreに保存された際のID
-  title: string
-  systemPrompt: string
-  userChoicePromptTemplate: string
-  artifactGenerationPrompt: string
-  referenceDocuments: ReferenceDocument[]
-}
-
 const title = ref('')
 const description = ref('')
-const steps = ref<StepForm[]>([])
+const steps = ref<ProjectTemplateStep[]>([])
 
 const fetchTemplate = async () => {
   if (!auth.currentUser) return
@@ -173,24 +157,7 @@ const fetchTemplate = async () => {
       // フォームの初期化
       title.value = data.title
       description.value = data.description
-
-      // ステップをサブコレクションから取得
-      const stepsRef = collection(templateRef, 'steps')
-      const stepsQuery = query(stepsRef, orderBy('order'))
-      const stepsSnapshot = await getDocs(stepsQuery)
-      
-      steps.value = stepsSnapshot.docs.map(stepDoc => {
-        const stepData = stepDoc.data() as ProjectTemplateStep
-        return {
-          id: stepDoc.id,
-          title: stepData.title,
-          systemPrompt: stepData.systemPrompt,
-          userChoicePrompts: [], // 非推奨: userChoicePromptTemplateを使用
-          userChoicePromptTemplate: stepData.userChoicePromptTemplate || '',
-          artifactGenerationPrompt: stepData.artifactGenerationPrompt,
-          referenceDocuments: stepData.referenceDocuments
-        }
-      })
+      steps.value = data.steps
     }
   } catch (error) {
     console.error('テンプレート取得エラー:', error)
@@ -199,29 +166,22 @@ const fetchTemplate = async () => {
   }
 }
 
-const addStep = async () => {
-  if (!auth.currentUser || !template.value) return
+const addStep = () => {
+  if (!template.value) return
 
-  try {
-    const stepId = crypto.randomUUID()
-    const newStep: StepForm = {
-      id: stepId,
-      title: `ステップ ${steps.value.length + 1}`,
-      systemPrompt: '',
-      userChoicePromptTemplate: '',
-      artifactGenerationPrompt: '',
-      referenceDocuments: []
-    }
-    steps.value.push(newStep)
-  } catch (error) {
-    console.error('ステップ追加エラー:', error)
-    alert('ステップの追加に失敗しました')
+  const newStep: ProjectTemplateStep = {
+    id: crypto.randomUUID(),
+    title: `ステップ ${steps.value.length + 1}`,
+    order: steps.value.length + 1,
+    systemPrompt: '',
+    userChoicePromptTemplate: '',
+    artifactGenerationPrompt: '',
+    referenceDocuments: []
   }
+  steps.value.push(newStep)
 }
 
 const removeStep = async (index: number) => {
-  if (!auth.currentUser || !template.value) return
-
   const step = steps.value[index]
   if (!step) return
 
@@ -235,6 +195,8 @@ const removeStep = async (index: number) => {
   }
 
   steps.value.splice(index, 1)
+  // orderを更新
+  steps.value.forEach((step, i) => step.order = i + 1)
 }
 
 const handleCancel = () => {
@@ -272,12 +234,12 @@ const handleFileUpload = async (event: Event, stepIndex: number) => {
 
   const file = input.files[0]
   const step = steps.value[stepIndex]
-  if (!step || !step.id) return
+  if (!step) return
 
   uploadLoading.value = true
   try {
     const fileName = `${file.name}-${Date.now()}`
-    const filePath = `users/${auth.currentUser.uid}/projectTemplates/${template.value.id}/steps/${step.id}/${fileName}`
+    const filePath = `users/${auth.currentUser.uid}/projectTemplates/${template.value.id}/${step.id}/${fileName}`
     const fileRef = storageRef(storage, filePath)
 
     // ファイルをアップロード
@@ -307,7 +269,7 @@ const handleDocumentDelete = async (stepIndex: number, docIndex: number) => {
   if (!auth.currentUser || !template.value) return
 
   const step = steps.value[stepIndex]
-  if (!step || !step.id) return
+  if (!step) return
 
   const doc = step.referenceDocuments[docIndex]
   if (!doc) return
@@ -341,58 +303,22 @@ const handleSave = async () => {
 
   try {
     const templateId = route.params.id as string
-    const batch = writeBatch(db)
-
-    // テンプレート本体の更新
     const templateRef = doc(db, `users/${currentUser.uid}/projectTemplates/${templateId}`)
-    batch.update(templateRef, {
+    
+    // テンプレートを更新（stepsを含む）
+    await updateDoc(templateRef, {
       title: title.value.trim(),
       description: description.value.trim(),
-      updatedAt: serverTimestamp()
-    })
-
-    // 既存のステップを全て取得
-    const stepsRef = collection(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps`)
-    const existingSteps = await getDocs(stepsRef)
-    
-    // 既存のステップをMapに変換（高速検索用）
-    const existingStepsMap = new Map(
-      existingSteps.docs.map(doc => [doc.id, doc])
-    )
-
-    // 各ステップの更新または作成
-    steps.value.forEach((step, index) => {
-      const stepData = {
+      updatedAt: serverTimestamp(),
+      steps: steps.value.map(step => ({
+        ...step,
         title: step.title.trim(),
-        order: index + 1,
         systemPrompt: step.systemPrompt.trim(),
-        userChoicePromptTemplate: step.userChoicePromptTemplate.trim(),
-        referenceDocuments: step.referenceDocuments,
-        artifactGenerationPrompt: step.artifactGenerationPrompt.trim()
-      }
-
-      if (step.id && existingStepsMap.has(step.id)) {
-        // 既存のステップを更新
-        const stepRef = doc(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps/${step.id}`)
-        batch.update(stepRef, stepData)
-        existingStepsMap.delete(step.id)
-      } else {
-        // 新しいステップを作成
-        const newStepRef = doc(collection(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps`))
-        batch.set(newStepRef, {
-          ...stepData,
-          id: newStepRef.id
-        })
-      }
+        userChoicePromptTemplate: step.userChoicePromptTemplate || '', // オプショナルなプロパティに対してデフォルト値を設定
+        artifactGenerationPrompt: step.artifactGenerationPrompt.trim(),
+      }))
     })
 
-    // 削除されたステップを処理
-    existingStepsMap.forEach((_, stepId) => {
-      const stepRef = doc(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps/${stepId}`)
-      batch.delete(stepRef)
-    })
-
-    await batch.commit()
     router.push('/dashboard')
   } catch (error) {
     console.error('テンプレート更新エラー:', error)

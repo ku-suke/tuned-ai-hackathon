@@ -1,3 +1,6 @@
+firestoreのデータ構造を、users/project/stepsのstepsおよびusers/projectTemplates/stepsのstepsをサブコレクションに変更したのですが、やっぱりprojectTemplatesのstepsはプロパティにするべきだと思い直しました。この変更に伴い、template/CreateView.vueとtemplate/EditView.vueを修正してください。また、DetailView.vueのProjectTemplateRefを使う部分を修正してください。型定義のfirestore.tsは修正済みです。
+
+------
 
 firestoreのデータ構造をリファクタリングしたいです。users/projests/stepsあるいはusers/projectTemplates/stepsのStepが、いずれも親ドキュメントのプロパティとなっていますが、これをサブコレクションにかえたいです。併せて参照している個所をすべて適切に書き変えたいです（DetailViewはProject/Stepsのみ変更済み）
 

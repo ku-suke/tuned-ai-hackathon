@@ -27,7 +27,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, db } from '@/main'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import type { ProjectTemplate, ProjectTemplateStep } from '@/types/firestore'
 
 const router = useRouter()
@@ -49,20 +49,9 @@ const handleSave = async () => {
   }
 
   try {
-    // まずテンプレートを作成
-    const templateData: Omit<ProjectTemplate, 'id'> = {
-      title: title.value.trim(),
-      description: description.value.trim(),
-      createdAt: serverTimestamp() as any,
-      updatedAt: serverTimestamp() as any,
-      isPublished: false
-    }
-
-    const templatesRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates`)
-    const docRef = await addDoc(templatesRef, templateData)
-
-    // 次に初期ステップをサブコレクションとして作成
-    const initialStep: Omit<ProjectTemplateStep, 'id'> = {
+    // 初期ステップを作成
+    const initialStep: ProjectTemplateStep = {
+      id: crypto.randomUUID(),
       title: 'ステップ 1',
       order: 1,
       systemPrompt: '',
@@ -71,11 +60,23 @@ const handleSave = async () => {
       artifactGenerationPrompt: ''
     }
 
-    const stepsRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates/${docRef.id}/steps`)
-    await addDoc(stepsRef, initialStep)
+    // テンプレートとステップを一緒に作成
+    const templateId = crypto.randomUUID()
+    const templateData: ProjectTemplate = {
+      id: templateId,
+      title: title.value.trim(),
+      description: description.value.trim(),
+      createdAt: serverTimestamp() as any,
+      updatedAt: serverTimestamp() as any,
+      isPublished: false,
+      steps: [initialStep]
+    }
+
+    const templatesRef = doc(db, `users/${auth.currentUser.uid}/projectTemplates/${templateId}`)
+    await setDoc(templatesRef, templateData)
 
     // 保存後にEditViewに遷移
-    router.push(`/template/edit/${docRef.id}`)
+    router.push(`/template/edit/${templateId}`)
   } catch (error) {
     console.error('テンプレート保存エラー:', error)
     alert('テンプレートの保存に失敗しました')

@@ -20,7 +20,7 @@
       <div class="steps-column">
         <h2 class="column-title">ステップ</h2>
         <div class="steps-list">
-          <div v-for="step in steps" :key="step.id" class="step-item" :class="{
+          <div v-for="step in projectSteps" :key="step.id" class="step-item" :class="{
             'completed': step.artifact,
             'active': currentStep?.id === step.id
           }" @click="handleSelectStep(step)">
@@ -149,7 +149,7 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(true)
 const project = ref<Project | null>(null)
-const steps = ref<ProjectStep[]>([])
+const projectSteps = ref<ProjectStep[]>([])
 const currentStep = ref<ProjectStep | null>(null)
 const messageInput = ref('')
 const chatMessagesRef = ref<HTMLElement | null>(null)
@@ -281,7 +281,7 @@ const fetchProject = async () => {
       orderBy('order')
     )
     const stepsSnapshot = await getDocs(stepsQuery)
-    steps.value = stepsSnapshot.docs.map(doc => ({
+    projectSteps.value = stepsSnapshot.docs.map(doc => ({
       ...doc.data(),
       id: doc.id,
     })) as ProjectStep[]
@@ -328,8 +328,8 @@ const fetchProject = async () => {
     }
 
     // 最初のステップを選択
-    if (steps.value.length > 0) {
-      currentStep.value = steps.value[0]
+    if (projectSteps.value.length > 0) {
+      currentStep.value = projectSteps.value[0]
     }
 
   } catch (error) {
