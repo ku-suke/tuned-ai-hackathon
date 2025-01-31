@@ -61,7 +61,7 @@
 import { ref, onMounted, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, db } from '@/main'
-import { collection, doc, getDoc, addDoc, Timestamp } from 'firebase/firestore'
+import { collection, doc, getDoc, addDoc, Timestamp, getDocs, query, orderBy } from 'firebase/firestore'
 import type {
   PublishedProjectTemplate,
   Project,
@@ -142,18 +142,6 @@ const handleSubmit = async () => {
   creating.value = true
   
   try {
-    // プロジェクトステップの初期化
-    const steps: ProjectStep[] = selectedTemplate.value.steps.map((step: ProjectTemplateStep) => ({
-      id: crypto.randomUUID(),
-      templateStepId: step.id,
-      order: step.order,
-      conversations: [],
-      documents: step.referenceDocuments.map((doc: ReferenceDocument) => ({
-        id: doc.id,
-        isEnabled: true
-      })),
-      uploadedDocuments: []
-    }))
 
     // プロジェクトの作成
     const projectData: Omit<Project, 'id'> = {
@@ -164,12 +152,46 @@ const handleSubmit = async () => {
       description: form.value.description,
       createdAt: Timestamp.now().toDate(),
       updatedAt: Timestamp.now().toDate(),
-      status: 'in_progress',
-      steps
+      status: 'in_progress'
     }
 
-    const docRef = await addDoc(collection(db, `users/${auth.currentUser.uid}/projects`), projectData)
-    router.push(`/project/${docRef.id}`)
+    const projectsRef = collection(db, `users/${auth.currentUser.uid}/projects`)
+    const projectDoc = await addDoc(projectsRef, projectData)
+
+    // テンプレートのステップを取得
+    const stepsPath = templateType === 'private'
+      ? `users/${auth.currentUser.uid}/projectTemplates/${selectedTemplate.value.id}/steps`
+      : `publishedTemplates/${selectedTemplate.value.id}/steps`
+    
+    const templateStepsRef = collection(db, stepsPath)
+    const templateStepsQuery = query(templateStepsRef, orderBy('order'))
+    const templateStepsSnapshot = await getDocs(templateStepsQuery)
+    
+    // ステップの作成
+    for (const templateStepDoc of templateStepsSnapshot.docs) {
+      const templateStep = {
+        ...templateStepDoc.data(),
+        id: templateStepDoc.id
+      } as ProjectTemplateStep
+      const stepData: Omit<ProjectStep, 'id'> = {
+        templateStepId: templateStep.id,
+        order: templateStep.order,
+        conversations: [],
+        stepState: {
+          generatedChoices: []
+        },
+        documents: templateStep.referenceDocuments.map((doc: ReferenceDocument) => ({
+          id: doc.id,
+          isEnabled: true
+        })),
+        uploadedDocuments: []
+      }
+
+      const stepsRef = collection(db, `users/${auth.currentUser.uid}/projects/${projectDoc.id}/steps`)
+      await addDoc(stepsRef, stepData)
+    }
+
+    router.push(`/project/${projectDoc.id}`)
   } catch (error) {
     console.error('プロジェクト作成エラー:', error)
     alert('プロジェクトの作成に失敗しました')

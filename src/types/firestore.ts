@@ -61,7 +61,6 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
   status: 'in_progress' | 'completed';
-  steps: ProjectStep[];
 }
 
 export interface ProjectStep {

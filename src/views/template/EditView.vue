@@ -66,7 +66,7 @@
               <label class="form-label">ユーザー選択肢プロンプト (オプション)</label>
               <textarea
                 class="form-textarea"
-                v-model="step.userChoicePrompts"
+                v-model="step.userChoicePromptTemplate"
                 placeholder="ユーザーが選択できる選択肢のプロンプトを入力"
               ></textarea>
             </div>
@@ -122,10 +122,14 @@ import { auth, db, storage } from '@/main'
 import {
   doc,
   getDoc,
+  getDocs,
   updateDoc,
   serverTimestamp,
   collection,
-  addDoc
+  addDoc,
+  writeBatch,
+  query,
+  orderBy
 } from 'firebase/firestore'
 import {
   ref as storageRef,
@@ -145,7 +149,7 @@ interface StepForm {
   id?: string // Firestoreに保存された際のID
   title: string
   systemPrompt: string
-  userChoicePrompts: string[]
+  userChoicePromptTemplate: string
   artifactGenerationPrompt: string
   referenceDocuments: ReferenceDocument[]
 }
@@ -169,14 +173,24 @@ const fetchTemplate = async () => {
       // フォームの初期化
       title.value = data.title
       description.value = data.description
-      steps.value = data.steps.map(step => ({
-        id: step.id,
-        title: step.title,
-        systemPrompt: step.systemPrompt,
-        userChoicePrompts: step.userChoicePrompts || [],
-        artifactGenerationPrompt: step.artifactGenerationPrompt,
-        referenceDocuments: step.referenceDocuments
-      }))
+
+      // ステップをサブコレクションから取得
+      const stepsRef = collection(templateRef, 'steps')
+      const stepsQuery = query(stepsRef, orderBy('order'))
+      const stepsSnapshot = await getDocs(stepsQuery)
+      
+      steps.value = stepsSnapshot.docs.map(stepDoc => {
+        const stepData = stepDoc.data() as ProjectTemplateStep
+        return {
+          id: stepDoc.id,
+          title: stepData.title,
+          systemPrompt: stepData.systemPrompt,
+          userChoicePrompts: [], // 非推奨: userChoicePromptTemplateを使用
+          userChoicePromptTemplate: stepData.userChoicePromptTemplate || '',
+          artifactGenerationPrompt: stepData.artifactGenerationPrompt,
+          referenceDocuments: stepData.referenceDocuments
+        }
+      })
     }
   } catch (error) {
     console.error('テンプレート取得エラー:', error)
@@ -194,7 +208,7 @@ const addStep = async () => {
       id: stepId,
       title: `ステップ ${steps.value.length + 1}`,
       systemPrompt: '',
-      userChoicePrompts: [],
+      userChoicePromptTemplate: '',
       artifactGenerationPrompt: '',
       referenceDocuments: []
     }
@@ -312,7 +326,8 @@ const handleDocumentDelete = async (stepIndex: number, docIndex: number) => {
 }
 
 const handleSave = async () => {
-  if (!auth.currentUser || !template.value) return
+  const currentUser = auth.currentUser
+  if (!currentUser || !template.value) return
 
   if (!title.value.trim()) {
     alert('テンプレート名を入力してください')
@@ -326,23 +341,58 @@ const handleSave = async () => {
 
   try {
     const templateId = route.params.id as string
-    const templateRef = doc(db, `users/${auth.currentUser.uid}/projectTemplates/${templateId}`)
-    
-    await updateDoc(templateRef, {
+    const batch = writeBatch(db)
+
+    // テンプレート本体の更新
+    const templateRef = doc(db, `users/${currentUser.uid}/projectTemplates/${templateId}`)
+    batch.update(templateRef, {
       title: title.value.trim(),
       description: description.value.trim(),
-      updatedAt: serverTimestamp(),
-      steps: steps.value.map((step, index) => ({
-        id: step.id || `step${index + 1}`,
-        title: step.title,
-        order: index + 1,
-        systemPrompt: step.systemPrompt.trim(),
-        userChoicePrompts: step.userChoicePrompts,
-        referenceDocuments: step.referenceDocuments,
-        artifactGenerationPrompt: step.artifactGenerationPrompt.trim()
-      }))
+      updatedAt: serverTimestamp()
     })
 
+    // 既存のステップを全て取得
+    const stepsRef = collection(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps`)
+    const existingSteps = await getDocs(stepsRef)
+    
+    // 既存のステップをMapに変換（高速検索用）
+    const existingStepsMap = new Map(
+      existingSteps.docs.map(doc => [doc.id, doc])
+    )
+
+    // 各ステップの更新または作成
+    steps.value.forEach((step, index) => {
+      const stepData = {
+        title: step.title.trim(),
+        order: index + 1,
+        systemPrompt: step.systemPrompt.trim(),
+        userChoicePromptTemplate: step.userChoicePromptTemplate.trim(),
+        referenceDocuments: step.referenceDocuments,
+        artifactGenerationPrompt: step.artifactGenerationPrompt.trim()
+      }
+
+      if (step.id && existingStepsMap.has(step.id)) {
+        // 既存のステップを更新
+        const stepRef = doc(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps/${step.id}`)
+        batch.update(stepRef, stepData)
+        existingStepsMap.delete(step.id)
+      } else {
+        // 新しいステップを作成
+        const newStepRef = doc(collection(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps`))
+        batch.set(newStepRef, {
+          ...stepData,
+          id: newStepRef.id
+        })
+      }
+    })
+
+    // 削除されたステップを処理
+    existingStepsMap.forEach((_, stepId) => {
+      const stepRef = doc(db, `users/${currentUser.uid}/projectTemplates/${templateId}/steps/${stepId}`)
+      batch.delete(stepRef)
+    })
+
+    await batch.commit()
     router.push('/dashboard')
   } catch (error) {
     console.error('テンプレート更新エラー:', error)

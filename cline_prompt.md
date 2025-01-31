@@ -1,3 +1,7 @@
+
+firestoreのデータ構造をリファクタリングしたいです。users/projests/stepsあるいはusers/projectTemplates/stepsのStepが、いずれも親ドキュメントのプロパティとなっていますが、これをサブコレクションにかえたいです。併せて参照している個所をすべて適切に書き変えたいです（DetailViewはProject/Stepsのみ変更済み）
+
+------
 updateAIMessageでレスポンスが帰ってきたら、exampleResponseを呼び出してください。このAPIはサーバー側でこれまでのconversationsを読み込んだうえで、ユーザーが回答を思い付かないときのためにサンプルで短い質問の例をJSON配列で返します。
 
 ------

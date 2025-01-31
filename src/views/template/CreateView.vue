@@ -28,7 +28,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, db } from '@/main'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import type { ProjectTemplate } from '@/types/firestore'
+import type { ProjectTemplate, ProjectTemplateStep } from '@/types/firestore'
 
 const router = useRouter()
 const title = ref('')
@@ -49,27 +49,31 @@ const handleSave = async () => {
   }
 
   try {
+    // まずテンプレートを作成
     const templateData: Omit<ProjectTemplate, 'id'> = {
       title: title.value.trim(),
       description: description.value.trim(),
       createdAt: serverTimestamp() as any,
       updatedAt: serverTimestamp() as any,
-      isPublished: false,
-      steps: [
-        {
-          id: crypto.randomUUID(),
-          title: 'ステップ 1',
-          order: 1,
-          systemPrompt: '',
-          userChoicePrompts: [],
-          referenceDocuments: [],
-          artifactGenerationPrompt: ''
-        }
-      ]
+      isPublished: false
     }
 
     const templatesRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates`)
     const docRef = await addDoc(templatesRef, templateData)
+
+    // 次に初期ステップをサブコレクションとして作成
+    const initialStep: Omit<ProjectTemplateStep, 'id'> = {
+      title: 'ステップ 1',
+      order: 1,
+      systemPrompt: '',
+      userChoicePromptTemplate: '',
+      referenceDocuments: [],
+      artifactGenerationPrompt: ''
+    }
+
+    const stepsRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates/${docRef.id}/steps`)
+    await addDoc(stepsRef, initialStep)
+
     // 保存後にEditViewに遷移
     router.push(`/template/edit/${docRef.id}`)
   } catch (error) {

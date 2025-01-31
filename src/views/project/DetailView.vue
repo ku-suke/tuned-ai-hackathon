@@ -20,7 +20,7 @@
       <div class="steps-column">
         <h2 class="column-title">ステップ</h2>
         <div class="steps-list">
-          <div v-for="step in project.steps" :key="step.id" class="step-item" :class="{
+          <div v-for="step in steps" :key="step.id" class="step-item" :class="{
             'completed': step.artifact,
             'active': currentStep?.id === step.id
           }" @click="handleSelectStep(step)">
@@ -125,7 +125,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, db } from '@/main'
-import { doc, getDoc, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, arrayUnion, Timestamp, collection, getDocs, orderBy, query } from 'firebase/firestore'
 import type {
   Project,
   ProjectStep,
@@ -142,14 +142,18 @@ const API_ENDPOINTS = {
   generateArtifact: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/generateArtifact'
 }
 
+type ProjectTemplateWithSteps = ProjectTemplate & { steps: ProjectTemplateStep[] }
+type PublishedProjectTemplateWithSteps = PublishedProjectTemplate & { steps: ProjectTemplateStep[] }
+
 const route = useRoute()
 const router = useRouter()
 const loading = ref(true)
 const project = ref<Project | null>(null)
+const steps = ref<ProjectStep[]>([])
 const currentStep = ref<ProjectStep | null>(null)
 const messageInput = ref('')
 const chatMessagesRef = ref<HTMLElement | null>(null)
-const template = ref<ProjectTemplate | PublishedProjectTemplate | null>(null) // テンプレートのデータ
+const template = ref<ProjectTemplateWithSteps | PublishedProjectTemplateWithSteps | null>(null)
 const isGenerating = ref(false)
 
 // AIストリームレスポンスの処理
@@ -271,6 +275,17 @@ const fetchProject = async () => {
       updatedAt: data.updatedAt?.toDate(),
     } as Project
 
+    // ステップの取得
+    const stepsQuery = query(
+      collection(db, `users/${auth.currentUser?.uid}/projects/${projectDoc.id}/steps`),
+      orderBy('order')
+    )
+    const stepsSnapshot = await getDocs(stepsQuery)
+    steps.value = stepsSnapshot.docs.map(doc => ({
+      ...doc.data(),
+      id: doc.id,
+    })) as ProjectStep[]
+
     // テンプレートの取得
     const templateDoc = await getDoc(doc(db,
       project.value.templateType === 'private'
@@ -281,35 +296,40 @@ const fetchProject = async () => {
     if (templateDoc.exists()) {
       const templateData = templateDoc.data()
       if (templateData) {
+        const baseTemplate = {
+          ...templateData,
+          id: templateDoc.id,
+          title: templateData.title,
+          description: templateData.description,
+          steps: templateData.steps || [],
+        }
+
         if (project.value?.templateType === 'private') {
           template.value = {
-            ...templateData,
-            id: templateDoc.id,
-            title: templateData.title,
-            description: templateData.description,
+            ...baseTemplate,
             createdAt: templateData.createdAt?.toDate() || new Date(),
             updatedAt: templateData.updatedAt?.toDate() || new Date(),
             isPublished: templateData.isPublished || false,
             publishedTemplateId: templateData.publishedTemplateId,
-            steps: templateData.steps || [],
-          } as ProjectTemplate
+          } as ProjectTemplateWithSteps
         } else {
           template.value = {
-            ...templateData,
-            id: templateDoc.id,
+            ...baseTemplate,
             originalTemplateId: templateData.originalTemplateId,
             userId: templateData.userId,
             authorName: templateData.authorName,
-            title: templateData.title,
-            description: templateData.description,
             publishedAt: templateData.publishedAt?.toDate() || new Date(),
             updatedAt: templateData.updatedAt?.toDate() || new Date(),
             categories: templateData.categories || [],
-            steps: templateData.steps || [],
             usageCount: templateData.usageCount || 0,
-          } as PublishedProjectTemplate
+          } as PublishedProjectTemplateWithSteps
         }
       }
+    }
+
+    // 最初のステップを選択
+    if (steps.value.length > 0) {
+      currentStep.value = steps.value[0]
     }
 
   } catch (error) {

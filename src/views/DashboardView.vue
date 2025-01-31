@@ -74,7 +74,7 @@ import { useRouter } from 'vue-router'
 import { ref, onMounted } from 'vue'
 import { auth, db } from '@/main'
 import { signOut } from 'firebase/auth'
-import { collection, query, getDocs, deleteDoc, doc } from 'firebase/firestore'
+import { collection, query, getDocs, deleteDoc, doc, writeBatch } from 'firebase/firestore'
 import type { ProjectTemplate, Project } from '@/types/firestore'
 
 const router = useRouter()
@@ -147,7 +147,19 @@ const handleDelete = async (id: string) => {
   if (!confirm('このテンプレートを削除してもよろしいですか？')) return
 
   try {
-    await deleteDoc(doc(db, `users/${auth.currentUser.uid}/projectTemplates/${id}`))
+    const batch = writeBatch(db)
+
+    // まずステップのサブコレクションを取得して削除
+    const stepsRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates/${id}/steps`)
+    const stepsSnapshot = await getDocs(stepsRef)
+    stepsSnapshot.forEach(stepDoc => {
+      batch.delete(doc(db, `users/${auth.currentUser.uid}/projectTemplates/${id}/steps/${stepDoc.id}`))
+    })
+
+    // テンプレート本体を削除
+    batch.delete(doc(db, `users/${auth.currentUser.uid}/projectTemplates/${id}`))
+
+    await batch.commit()
     templates.value = templates.value.filter(t => t.id !== id)
   } catch (error) {
     console.error('テンプレート削除エラー:', error)
@@ -168,7 +180,3 @@ onMounted(() => {
   fetchProjects()
 })
 </script>
-
-<style scoped>
-/* スコープ付きCSSを削除し、共通クラスを使用 */
-</style>
