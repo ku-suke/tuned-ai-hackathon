@@ -32,39 +32,85 @@ export function useProjectDetail() {
 
   // AIストリームレスポンスの処理
   const processAIStream = async (response: Response, updateMessage: (content: string) => void) => {
-    if (!response.body) throw new Error('No response body')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let finalMessage = ''
-
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-
-      const chunk = decoder.decode(value)
-      buffer += chunk
-
-      // SSEメッセージの処理
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
+    if (!response.ok) throw new Error('Stream response error')
     
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.type === 'message' && data.content) {
-              finalMessage += data.content
-              updateMessage(finalMessage)
-            } else if (data.type === 'error') {
-              console.error('Stream error:', data.error)
-              throw new Error(data.error)
-            }
-          } catch (e) {
-            console.error('JSON parse error:', e)
-          }
+    let finalMessage = ''
+    
+    // SSEストリームの設定
+    const stream = new ReadableStream({
+      start(controller) {
+        if (!response.body) {
+          controller.close()
+          return
         }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        function push() {
+          reader.read().then(({done, value}) => {
+            if (done) {
+              if (buffer.length > 0) {
+                // 残りのバッファを処理
+                const lines = buffer.split('\n')
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6))
+                      if (data.text) {
+                        finalMessage += data.text
+                        updateMessage(finalMessage)
+                      } else if (data.type === 'error') {
+                        throw new Error(data.error)
+                      }
+                    } catch (e) {
+                      console.error('Error parsing SSE data:', e)
+                    }
+                  }
+                }
+              }
+              controller.close()
+              return
+            }
+
+            const text = decoder.decode(value, { stream: true })
+            buffer += text
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6))
+                  if (data.text) {
+                    finalMessage += data.text
+                    updateMessage(finalMessage)
+                  } else if (data.type === 'error') {
+                    throw new Error(data.error)
+                  }
+                } catch (e) {
+                  console.error('Error parsing SSE data:', e)
+                }
+              }
+            }
+
+            push()
+          }).catch((error) => {
+            console.error('Stream reading error:', error)
+            controller.error(error)
+          })
+        }
+
+        push()
       }
+    })
+
+    // ストリームの読み込みを開始
+    const reader = stream.getReader()
+    while (true) {
+      const {done} = await reader.read()
+      if (done) break
     }
 
     return finalMessage
@@ -97,17 +143,17 @@ export function useProjectDetail() {
   const callChatAPI = async (userMessage: string): Promise<Response | null> => {
     if (!project.value || !currentStep.value) return null
 
-    // URLSearchParamsを使用してクエリパラメータを構築
-    const params = new URLSearchParams({
-      messageId: crypto.randomUUID(),
-      message: userMessage
-    })
-
-    const response = await fetch(`${API_ENDPOINTS.chatWithContext}?${params}`, {
-      method: 'GET',
+    const response = await fetch(API_ENDPOINTS.chatWithContext, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-      }
+      },
+      body: JSON.stringify({
+        projectId: project.value.id,
+        stepId: currentStep.value.id,
+        message: userMessage
+      })
     })
 
     if (!response.ok) throw new Error('Chat API error')
@@ -118,16 +164,16 @@ export function useProjectDetail() {
   const callExampleResponseAPI = async (): Promise<Response | null> => {
     if (!project.value || !currentStep.value) return null
 
-    const params = new URLSearchParams({
-      projectId: project.value.id,
-      stepId: currentStep.value.id
-    })
-
-    const response = await fetch(`${API_ENDPOINTS.generateExampleResponse}?${params}`, {
-      method: 'GET',
+    const response = await fetch(API_ENDPOINTS.generateExampleResponse, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-      }
+      },
+      body: JSON.stringify({
+        projectId: project.value.id,
+        stepId: currentStep.value.id
+      })
     })
 
     if (!response.ok) throw new Error('Example Response API error')
@@ -287,16 +333,16 @@ export function useProjectDetail() {
     // 会話が5件以上になった場合、成果物を生成
     if (currentStep.value.conversations.length >= 5) {
       try {
-        const params = new URLSearchParams({
-          projectId: project.value.id,
-          stepId: currentStep.value.id
-        })
-
-        const response = await fetch(`${API_ENDPOINTS.generateArtifact}?${params}`, {
-          method: 'GET',
+        const response = await fetch(API_ENDPOINTS.generateArtifact, {
+          method: 'POST',
           headers: {
+            'Content-Type': 'application/json',
             'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-          }
+          },
+          body: JSON.stringify({
+            projectId: project.value.id,
+            stepId: currentStep.value.id
+          })
         });
 
         if (!response.ok) {
