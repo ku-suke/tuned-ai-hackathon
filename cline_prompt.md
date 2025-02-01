@@ -1,3 +1,15 @@
+DetailViewについて、チャットの吹き出しと成果物の表示についてはmarkdown形式をプレビューしたいので、必要なライブラリを導入して適切にプレビュー表示できるようにしてください。markdownのプリセットとしてはGithub flavoredがいいですね。
+
+------
+
+長くなってきたので、テンプレートとJSを分離しましょうか。
+
+------
+
+DetailViewで成果物の表示が、ブラウザのアラートみたいになっているので、Tailwindでモーダル表示にしてもらえますか
+
+------
+
 firestoreのデータ構造を、users/project/stepsのstepsおよびusers/projectTemplates/stepsのstepsをサブコレクションに変更したのですが、やっぱりprojectTemplatesのstepsはプロパティにするべきだと思い直しました。この変更に伴い、template/CreateView.vueとtemplate/EditView.vueを修正してください。また、DetailView.vueのProjectTemplateRefを使う部分を修正してください。型定義のfirestore.tsは修正済みです。
 
 ------
