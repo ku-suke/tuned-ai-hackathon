@@ -13,6 +13,10 @@ import type {
   ProjectTemplate,
   ReferenceDocument,
   ProjectStep,
+  Project,
+  PublishedProjectTemplate,
+  ProjectTemplateStep,
+  Conversation,
 } from "./types/firestore";
 
 // Cloud Functions のグローバル設定
@@ -98,28 +102,53 @@ function setStreamingResponse(response: any) {
  * プロジェクトステップの取得
  */
 async function getProjectStep(userId: string, projectId: string, stepId: string): Promise<ProjectStep | null> {
-  const stepDoc = await admin.firestore()
-    .collection('users')
-    .doc(userId)
-    .collection('projects')
-    .doc(projectId)
-    .collection('steps')
-    .doc(stepId)
-    .get();
+  try {
+    const stepDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .collection('projects')
+      .doc(projectId)
+      .collection('steps')
+      .doc(stepId)
+      .get();
 
-  if (!stepDoc.exists) return null;
+    if (!stepDoc.exists) return null;
 
-  const data = stepDoc.data();
-  if (!data) return null;
+    const data = stepDoc.data();
+    if (!data) return null;
 
-  return {
-    ...data,
-    id: stepDoc.id,
-    conversations: data.conversations?.map((conv: any) => ({
-      ...conv,
-      createdAt: conv.createdAt?.toDate()
-    })) || []
-  } as ProjectStep;
+    // 型安全な変換処理
+    const conversations = Array.isArray(data.conversations) 
+      ? data.conversations.map((conv): Conversation => ({
+          id: conv.id || '',
+          role: conv.role || 'user',
+          content: conv.content || '',
+          createdAt: conv.createdAt?.toDate() || new Date()
+        }))
+      : [];
+
+    // documents配列の安全な変換
+    const documents = Array.isArray(data.documents) 
+      ? data.documents 
+      : [];
+
+    // uploadedDocuments配列の安全な変換
+    const uploadedDocuments = Array.isArray(data.uploadedDocuments) 
+      ? data.uploadedDocuments 
+      : [];
+
+    return {
+      ...data,
+      id: stepDoc.id,
+      conversations,
+      documents,
+      uploadedDocuments
+    } as ProjectStep;
+
+  } catch (error) {
+    console.error('Error in getProjectStep:', error);
+    return null;
+  }
 }
 
 /**
@@ -213,58 +242,134 @@ export const generateExampleResponse = onRequest({
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     const userId = decodedToken.uid;
 
-    const { projectId, stepId, selectedPrompt } = req.body;
-    if (!projectId || !stepId || !selectedPrompt) {
+    const { projectId, stepId } = req.body;
+    if (!projectId || !stepId) {
       res.status(400).send('Missing required parameters');
       return;
     }
 
+    // プロジェクトステップの取得
     const step = await getProjectStep(userId, projectId, stepId);
     if (!step) {
       res.status(404).send('Step not found');
       return;
     }
 
-    // 直近の会話履歴を取得（最大5件）
-    const recentConversations = step.conversations
-      .slice(-5)
-      .map(conv => `${conv.role}: ${conv.content}`)
-      .join('\n');
+    // Firestoreへの参照を修正
+    const projectRef = admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .collection('projects')
+      .doc(projectId);
+
+    // 存在確認を追加
+    const projectDoc = await projectRef.get();
+    if (!projectDoc.exists) {
+      throw new Error('Project not found');
+    }
+
+    const project = projectDoc.data() as Project;
+    const templateRef = project.templateType === 'private'
+      ? admin.firestore()
+          .collection('users')
+          .doc(userId)
+          .collection('projectTemplates')
+          .doc(project.templateId)
+      : admin.firestore()
+          .collection('publishedProjectTemplates')
+          .doc(project.templateId);
+
+    const templateDoc = await templateRef.get();
+
+    // データ存在チェック
+    if (!templateDoc?.exists) {
+      res.status(404).send('Template not found');
+      return;
+    }
+
+    // テンプレートデータの型安全な取得
+    const template = templateDoc.data() as (ProjectTemplate | PublishedProjectTemplate);
+    if (!template) {
+      res.status(400).send('Invalid template data');
+      return;
+    }
+
+    // ステップ存在チェック
+    const templateStep = template?.steps?.find((s: ProjectTemplateStep) => s.id === step?.templateStepId);
+    if (!templateStep?.userChoicePromptTemplate) {
+      res.status(400).send('Template step or user choice prompt not found');
+      return;
+    }
+
+    // 会話履歴の安全な取得
+    const recentConversations = Array.isArray(step?.conversations) && step.conversations.length > 0
+      ? step.conversations
+          .slice(-5)
+          .map(conv => `${conv.role}: ${conv.content}`)
+          .join('\n')
+      : '';
+
+    // chatの初期化チェック
     model.generationConfig.maxOutputTokens = 400;
     const chat = model.startChat({
       history: [],
       safetySettings,
     });
 
-    // 会話履歴とプロンプトを結合
+    // システムプロンプトと会話履歴を結合
     const fullPrompt = `
-Recent conversations:
+System: あなたは会話の文脈を理解して適切な選択肢を提示するAIアシスタントです。
+以下の情報を元に、ユーザーが選択できる適切な回答例を3つ生成してください。
+ユーザーは、別の専門家AIからヒアリングを受けています。
+回答例は、会話の文脈に沿った自然な表現を心がけてください。
+
+Recent Conversations:
+専門家AIの定義: ${templateStep.systemPrompt}
 ${recentConversations}
 
-outputJson:{ exampleTalkResponse: [ 'example1', 'example2'... ] }`;
+Based on the above context, generate 3 appropriate response options that:
+1. Follow the user choice prompt template
+2. Consider the context of recent conversations
+3. Are natural and conversational
+4. Help move the conversation forward
+
+Output your response in the following JSON format:
+{
+  "exampleTalkResponse": [
+    "短い１５文字前後の回答例1",
+    "短い１５文字前後の回答例2",
+    "短い１５文字前後の回答例3"
+  ]
+}`;
+    console.log('Generated prompt:', fullPrompt);
 
     const result = await chat.sendMessage(fullPrompt);
     const response = result.response;
     const text = response.text();
+    console.log('Generated response:', text);
 
-      // JSON文字列を抽出 ('{' から '}' まで)
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('JSON not found in response');
-      }
+    // JSON文字列を抽出 ('{' から '}' まで)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('JSON not found in response');
+    }
 
-      // JSONをパース
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (!parsed.exampleTalkResponse || !Array.isArray(parsed.exampleTalkResponse)) {
-        throw new Error('Invalid response format');
-      }
+    // JSONをパース
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!parsed.exampleTalkResponse || !Array.isArray(parsed.exampleTalkResponse)) {
+      throw new Error('Invalid response format');
+    }
 
-      // 配列として返す
-      res.json(parsed.exampleTalkResponse);
+    // 配列として返す
+    res.json(parsed.exampleTalkResponse);
 
   } catch (error) {
     console.error('Error in generateExampleResponse:', error);
-    res.status(500).send('Internal server error');
+    if (error instanceof Error) {
+      res.status(500).send(`Internal server error: ${error.message}`);
+    } else {
+      res.status(500).send('Internal server error');
+    }
   }
 });
 
@@ -297,38 +402,111 @@ export const generateArtifact = onRequest({
       res.status(404).send('Step not found');
       return;
     }
+    
+    const projectRef = admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .collection('projects')
+      .doc(projectId);
 
-    // 会話履歴全体を取得
-    const conversationHistory = step.conversations
-      .map(conv => `${conv.role}: ${conv.content}`)
-      .join('\n');
+    const projectDoc = await projectRef.get();
+    if (!projectDoc.exists) {
+      res.status(404).send('Project not found');
+      return;
+    }
+    const project = projectDoc.data() as Project;
+    const templateRef = project.templateType === 'private'
+      ? admin.firestore()
+          .collection('users')
+          .doc(userId)
+          .collection('projectTemplates')
+          .doc(project.templateId)
+      : admin.firestore()
+          .collection('publishedProjectTemplates')
+          .doc(project.templateId);
 
-    // ストリーミングレスポンスの設定
-    setStreamingResponse(res);
+    const templateDoc = await templateRef.get();
+
+    // テンプレートデータの型安全な取得
+    const template = templateDoc.data() as (ProjectTemplate | PublishedProjectTemplate);
+    if (!template) {
+      res.status(400).send('Invalid template data');
+      return;
+    }
+
+    // ステップ存在チェック
+    const templateStep = template?.steps?.find((s: ProjectTemplateStep) => s.id === step?.templateStepId);
+    if (!templateStep?.userChoicePromptTemplate) {
+      res.status(400).send('Template step or user choice prompt not found');
+      return;
+    }
+
+    // 会話履歴をchat historyとして設定
+    const history = step.conversations.map(conv => ({
+      role: conv.role === 'user' ? 'user' : 'model',
+      parts: [{ text: conv.content }],
+    }));
 
     const chat = model.startChat({
-      history: [],
+      history,
       safetySettings,
     });
 
-    // 会話履歴と成果物生成指示を結合
-    const fullPrompt = `
-Conversation History:
-${conversationHistory}
+    // JSONフォーマットを指定したプロンプト
+    const prompt = `
+System: ${templateStep.artifactGenerationPrompt}
+以下の形式のJSONで成果物を生成してください：
 
-Artifact Generation Instructions:
-${step.templateStepId}
+{
+  "title": "成果物のタイトル",
+  "content": "成果物の本文（詳細な内容）",
+  "summary": "成果物の要約（100文字程度）"
+}
+`;
 
-Please generate the artifact based on the above context.`;
+    // 成果物生成
+    const result = await chat.sendMessage(prompt);
+    const response = result.response;
+    const text = response.text();
 
-    const result = await chat.sendMessageStream(fullPrompt);
+    try {
+      // JSONを抽出 ('{' から '}' まで)
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('JSON not found in response');
+      }
 
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+      // JSONをパース
+      const artifact = JSON.parse(jsonMatch[0]);
+
+      // artifactの型チェックと必要なプロパティの追加
+      const validatedArtifact = {
+        title: artifact.title || '無題',
+        content: artifact.content || '',
+        summary: artifact.summary || '',
+        charCount: artifact.content?.length || 0,
+        createdAt: new Date()
+      };
+
+      // Firestoreに保存
+      await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('projects')
+        .doc(projectId)
+        .collection('steps')
+        .doc(stepId)
+        .update({
+          artifact: validatedArtifact
+        });
+
+      // 成功レスポンス
+      res.json(validatedArtifact);
+
+    } catch (error) {
+      console.error('Error processing artifact:', error);
+      res.status(500).json({ error: 'Failed to process artifact' });
     }
-
-    res.end();
   } catch (error) {
     console.error('Error in generateArtifact:', error);
     res.status(500).send('Internal server error');

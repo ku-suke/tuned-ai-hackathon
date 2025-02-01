@@ -59,8 +59,8 @@
 
           <div class="chat-input">
             <div v-if="currentStep.stepState?.generatedChoices?.length" class="preset-buttons">
-              <button v-for="prompt in currentStep.stepState?.generatedChoices" :key="prompt"
-                class="preset-button" @click="() => handleSendMessage(prompt)">
+              <button v-for="prompt in currentStep.stepState?.generatedChoices" :key="prompt" class="preset-button"
+                @click="() => handleSendMessage(prompt)">
                 {{ prompt }}
               </button>
             </div>
@@ -205,10 +205,11 @@ const updateAIMessage = async (messageId: string, content: string): Promise<void
 
   // Firestoreの更新
   try {
-    // Firestore更新
     const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
+    
+    // 更新された会話配列全体を保存
     await updateDoc(stepRef, {
-      [`conversations.${messageIndex}.content`]: content
+      conversations: currentStep.value.conversations
     })
   } catch (error) {
     console.error('メッセージ更新エラー:', error)
@@ -359,12 +360,17 @@ const handleSendMessage = async (content: string) => {
     content: content.trim(),
     createdAt: new Date()
   }
+  currentStep.value.stepState = { generatedChoices: [] };
+  // conversationsがなければ初期化
+  if (!currentStep.value.conversations) {
+    currentStep.value.conversations = [];
+  }
 
   try {
     // ステップ参照を作成
     const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
-
-    // ユーザーメッセージを保存
+    
+    // ユーザーメッセージを追記
     await updateDoc(stepRef, {
       conversations: arrayUnion(message)
     })
@@ -388,33 +394,8 @@ const handleSendMessage = async (content: string) => {
     // APIレスポンスを処理
     const response = await callChatAPI(content)
     if (response) {
-      const finalMessage = await processAIStream(response,
+      await processAIStream(response,
         (content) => updateAIMessage(aiMessage.id, content))
-      
-      // 回答が返ってきた後に例示レスポンスを生成
-      const exampleResponse = await callExampleResponseAPI()
-      if (exampleResponse) {
-        const examples = await exampleResponse.json()
-        if (Array.isArray(examples)) {
-          // ステップの状態を更新
-          const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
-          
-          // stepStateの初期化確認
-          if (!currentStep.value.stepState) {
-            currentStep.value.stepState = { generatedChoices: [] };
-          }
-
-          await updateDoc(stepRef, {
-            stepState: {
-              ...currentStep.value.stepState,
-              generatedChoices: examples
-            }
-          })
-          
-          // ローカルステートも更新
-          currentStep.value.stepState.generatedChoices = examples
-        }
-      }
     }
 
   } catch (error) {
@@ -428,6 +409,53 @@ const handleSendMessage = async (content: string) => {
     }
   } finally {
     isGenerating.value = false
+  }
+
+  // 会話が5件以上になった場合、成果物を生成
+  if (currentStep.value.conversations.length >= 5 ) {
+    try {
+      const response = await fetch(API_ENDPOINTS.generateArtifact, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
+        },
+        body: JSON.stringify({
+          projectId: project.value.id,
+          stepId: currentStep.value.id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('成果物生成に失敗しました');
+      }
+    } catch (error) {
+      console.error('成果物生成エラー:', error);
+    }
+  }
+
+  try {
+    // 回答が返ってきた後に例示レスポンスを生成
+    const exampleResponse = await callExampleResponseAPI()
+    if (exampleResponse) {
+      const examples = await exampleResponse.json()
+      if (Array.isArray(examples)) {
+        // ステップの状態を更新
+        const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value.id}/steps`, currentStep.value.id)
+
+        await updateDoc(stepRef, {
+          stepState: {
+            ...currentStep.value.stepState,
+            generatedChoices: examples
+          }
+        })
+
+        // ローカルステートも更新
+        currentStep.value.stepState.generatedChoices = examples
+      }
+    }
+  } catch (error) {
+    console.error('回答例生成エラー:', error)
   }
 }
 

@@ -39,7 +39,7 @@ export interface ProjectTemplateStep {
   title: string;
   order: number;
   systemPrompt: string;
-  userChoicePrompts?: string[];
+  userChoicePromptTemplate?: string;  // AIに選択肢を要求するためのプロンプトのみ
   referenceDocuments: ReferenceDocument[];
   artifactGenerationPrompt: string;
 }
