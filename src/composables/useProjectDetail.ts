@@ -330,29 +330,6 @@ export function useProjectDetail() {
       isGenerating.value = false
     }
 
-    // 会話が5件以上になった場合、成果物を生成
-    if (currentStep.value.conversations.length >= 5) {
-      try {
-        const response = await fetch(API_ENDPOINTS.generateArtifact, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-          },
-          body: JSON.stringify({
-            projectId: project.value.id,
-            stepId: currentStep.value.id
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error('成果物生成に失敗しました');
-        }
-      } catch (error) {
-        console.error('成果物生成エラー:', error);
-      }
-    }
-
     try {
       // 回答が返ってきた後に例示レスポンスを生成
       const exampleResponse = await callExampleResponseAPI()
@@ -375,6 +352,29 @@ export function useProjectDetail() {
       }
     } catch (error) {
       console.error('回答例生成エラー:', error)
+    }
+
+    // 会話が5件以上になった場合、成果物を生成・更新
+    if (currentStep.value.conversations.length >= 5) {
+      try {
+        const response = await fetch(API_ENDPOINTS.generateArtifact, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
+          },
+          body: JSON.stringify({
+            projectId: project.value.id,
+            stepId: currentStep.value.id
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('成果物生成に失敗しました');
+        }
+      } catch (error) {
+        console.error('成果物生成エラー:', error);
+      }
     }
   }
 

@@ -1,8 +1,19 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, GenerativeModel, ChatSession } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, GenerativeModel, ChatSession, SchemaType } from '@google/generative-ai';
 import { validateEnv } from '../config/env';
 
 interface Response {
   write(data: string): void;
+}
+
+interface StructuredLog {
+  severity: 'ERROR' | 'INFO' | 'DEBUG';
+  message: string;
+  error?: {
+    name?: string;
+    message?: string;
+    stack?: string;
+  };
+  context?: Record<string, unknown>;
 }
 
 export class AIService {
@@ -29,7 +40,7 @@ export class AIService {
   constructor() {
     const env = validateEnv();
     const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    this.model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    this.model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
   }
 
   private startChat(history: any[] = []): ChatSession {
@@ -39,10 +50,22 @@ export class AIService {
     });
   }
 
+  private logStructured(log: StructuredLog): void {
+    console.log(JSON.stringify(log));
+  }
+
   async generateChatResponse(messages: string[]): Promise<AsyncGenerator<string>> {
     try {
       const chat = this.startChat();
-      const result = await chat.sendMessageStream(messages[messages.length - 1]);
+      const message = messages[messages.length - 1];
+
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Generating chat response',
+        context: { prompt: message }
+      });
+
+      const result = await chat.sendMessageStream(message);
       
       const generator = async function* () {
         for await (const chunk of result.stream) {
@@ -54,8 +77,17 @@ export class AIService {
       };
 
       return generator();
-    } catch (error) {
-      console.error('AI generation error:', error);
+    } catch (error: any) {
+      this.logStructured({
+        severity: 'ERROR',
+        message: 'Chat generation failed',
+        error: {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        },
+        context: { messages }
+      });
       throw error;
     }
   }
@@ -70,6 +102,12 @@ ${contextDocs}
 
 User Question: ${message}`;
 
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Generating context response',
+        context: { systemPrompt, contextDocs, userMessage: message }
+      });
+
       const chat = this.startChat();
       const result = await chat.sendMessageStream(fullPrompt);
 
@@ -79,8 +117,17 @@ User Question: ${message}`;
       }
 
       return true;
-    } catch (error) {
-      console.error('Error in generateContextResponse:', error);
+    } catch (error: any) {
+      this.logStructured({
+        severity: 'ERROR',
+        message: 'Context response generation failed',
+        error: {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        },
+        context: { systemPrompt, message }
+      });
       return false;
     }
   }
@@ -117,8 +164,24 @@ Output your response in the following JSON format:
   ]
 }`;
 
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Generating example responses',
+        context: { systemPrompt, recentConversations, prompt }
+      });
+
+      this.model.generationConfig = {
+        responseMimeType: 'application/json'
+      };
+
       const result = await chat.sendMessage(prompt);
       const text = result.response.text();
+
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Received AI response',
+        context: { aiResponse: text }
+      });
 
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
@@ -131,8 +194,17 @@ Output your response in the following JSON format:
       }
 
       return parsed.exampleTalkResponse;
-    } catch (error) {
-      console.error('Error in generateExampleResponses:', error);
+    } catch (error: any) {
+      this.logStructured({
+        severity: 'ERROR',
+        message: 'Example response generation failed',
+        error: {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        },
+        context: { systemPrompt, recentConversations }
+      });
       return null;
     }
   }
@@ -156,11 +228,26 @@ System: ${artifactPrompt}
   "title": "成果物のタイトル",
   "content": "成果物の本文（詳細な内容）",
   "summary": "成果物の要約（100文字程度）"
-}
-`;
+}`;
+
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Generating artifact',
+        context: { artifactPrompt, conversations, prompt }
+      });
+
+      this.model.generationConfig = {
+        responseMimeType: 'application/json',
+      };
 
       const result = await chat.sendMessage(prompt);
       const text = result.response.text();
+
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Received AI response',
+        context: { aiResponse: text }
+      });
 
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
@@ -174,8 +261,17 @@ System: ${artifactPrompt}
         summary: artifact.summary || '',
         charCount: artifact.content?.length || 0
       };
-    } catch (error) {
-      console.error('Error in generateArtifact:', error);
+    } catch (error: any) {
+      this.logStructured({
+        severity: 'ERROR',
+        message: 'Artifact generation failed',
+        error: {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        },
+        context: { artifactPrompt }
+      });
       return null;
     }
   }
