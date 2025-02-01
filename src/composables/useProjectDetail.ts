@@ -11,10 +11,12 @@ import type {
   Conversation
 } from '@/types/firestore'
 
+const BASE_URL = import.meta.env.VITE_SERVER_BASE_URL || 'http://localhost:8080'
+
 const API_ENDPOINTS = {
-  chatWithContext: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/chatWithContext',
-  generateExampleResponse: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/generateExampleResponse',
-  generateArtifact: 'https://us-west1-tuned-ai-prod.cloudfunctions.net/generateArtifact'
+  chatWithContext: `${BASE_URL}/api/chat/stream`,
+  generateExampleResponse: `${BASE_URL}/api/chat/example`,
+  generateArtifact: `${BASE_URL}/api/chat/artifact`
 }
 
 type ProjectTemplateWithSteps = ProjectTemplate & { steps: ProjectTemplateStep[] }
@@ -46,14 +48,17 @@ export function useProjectDetail() {
       // SSEメッセージの処理
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
-
+    
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
             const data = JSON.parse(line.slice(6))
-            if (data.text) {
-              finalMessage += data.text
+            if (data.type === 'message' && data.content) {
+              finalMessage += data.content
               updateMessage(finalMessage)
+            } else if (data.type === 'error') {
+              console.error('Stream error:', data.error)
+              throw new Error(data.error)
             }
           } catch (e) {
             console.error('JSON parse error:', e)
@@ -92,17 +97,17 @@ export function useProjectDetail() {
   const callChatAPI = async (userMessage: string): Promise<Response | null> => {
     if (!project.value || !currentStep.value) return null
 
-    const response = await fetch(API_ENDPOINTS.chatWithContext, {
-      method: 'POST',
+    // URLSearchParamsを使用してクエリパラメータを構築
+    const params = new URLSearchParams({
+      messageId: crypto.randomUUID(),
+      message: userMessage
+    })
+
+    const response = await fetch(`${API_ENDPOINTS.chatWithContext}?${params}`, {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-      },
-      body: JSON.stringify({
-        projectId: project.value.id,
-        stepId: currentStep.value.id,
-        message: userMessage
-      })
+      }
     })
 
     if (!response.ok) throw new Error('Chat API error')
@@ -113,16 +118,16 @@ export function useProjectDetail() {
   const callExampleResponseAPI = async (): Promise<Response | null> => {
     if (!project.value || !currentStep.value) return null
 
-    const response = await fetch(API_ENDPOINTS.generateExampleResponse, {
-      method: 'POST',
+    const params = new URLSearchParams({
+      projectId: project.value.id,
+      stepId: currentStep.value.id
+    })
+
+    const response = await fetch(`${API_ENDPOINTS.generateExampleResponse}?${params}`, {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-      },
-      body: JSON.stringify({
-        projectId: project.value.id,
-        stepId: currentStep.value.id,
-      })
+      }
     })
 
     if (!response.ok) throw new Error('Example Response API error')
@@ -282,16 +287,16 @@ export function useProjectDetail() {
     // 会話が5件以上になった場合、成果物を生成
     if (currentStep.value.conversations.length >= 5) {
       try {
-        const response = await fetch(API_ENDPOINTS.generateArtifact, {
-          method: 'POST',
+        const params = new URLSearchParams({
+          projectId: project.value.id,
+          stepId: currentStep.value.id
+        })
+
+        const response = await fetch(`${API_ENDPOINTS.generateArtifact}?${params}`, {
+          method: 'GET',
           headers: {
-            'Content-Type': 'application/json',
             'Authorization': `Bearer ${await auth.currentUser?.getIdToken()}`
-          },
-          body: JSON.stringify({
-            projectId: project.value.id,
-            stepId: currentStep.value.id
-          })
+          }
         });
 
         if (!response.ok) {

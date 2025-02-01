@@ -1,3 +1,19 @@
+functions/配下のコードをCloudrunにするためserver/配下に移植しましたが、実際の処理があまりかけていませんでした。まず
+/api/chat/stream
+をchatWithContextから処理を追って移植しましょう
+
+------
+
+cloudfunctionを使用していた個所をすべてCloudRunに統合しました。ベースのパスは
+env.SERVER_BASE_URLで指定しています。
+で、そこから先のエンドポイントはserver.tsを参照して、DetailViewで使用しているJSを書き変えてください。
+
+------
+
+cloud functions for firebaseで書いてきましたが、処理が多くなってきたのでCloud Runに変更しようと思います。functions関連パッケージを除去し、Cloud Runでhttp2のstreaming reponse（SSE）が返せるようにDockerfileを構築し、server.tsを設置してください。
+
+------
+
 DetailViewについて、チャットの吹き出しと成果物の表示についてはmarkdown形式をプレビューしたいので、必要なライブラリを導入して適切にプレビュー表示できるようにしてください。markdownのプリセットとしてはGithub flavoredがいいですね。
 
 ------
