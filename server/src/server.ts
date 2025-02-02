@@ -93,26 +93,95 @@ app.post('/api/chat/stream', authenticateUser, sseMiddleware, async (req, res) =
       return;
     }
 
-    const step = await firestoreService.getProjectStep(userId, projectId, stepId);
-    if (!step) {
+    const project = await firestoreService.getProject(userId, projectId);
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    const template = await firestoreService.getProjectTemplate(userId, project);
+    if (!template) {
+      res.status(404).json({ error: 'Template not found' });
+      return;
+    }
+
+    // テンプレートのステップが存在することを確認
+    if (!template.steps || template.steps.length === 0) {
+      res.status(400).json({ error: 'Template steps not found' });
+      return;
+    }
+
+    // プロジェクトの全ステップを取得
+    const projectSteps = await firestoreService.getProjectSteps(userId, projectId);
+    
+    // 現在のステップを見つける
+    const currentStep = projectSteps.find(ps => ps.id === stepId);
+    if (!currentStep) {
       res.status(404).json({ error: 'Step not found' });
       return;
     }
 
+    // テンプレートステップの取得
+    const templateStep = template.steps.find(s => s.id === currentStep.templateStepId);
+    if (!templateStep) {
+      res.status(404).json({ error: 'Template step not found' });
+      return;
+    }
+
+    // 全ステップ情報の構築
+    const allSteps = template.steps.map((ts, index) => {
+      const projectStep = projectSteps.find(ps => ps.templateStepId === ts.id);
+      return {
+        stepNumber: index + 1,
+        title: ts.title,
+        isCurrentStep: ts.id === currentStep.templateStepId,
+        artifact: projectStep?.artifact
+      };
+    });
+
+    // 成果物を持つステップのみをフィルタリング
+    const previousArtifacts = projectSteps
+      .filter(ps => {
+        const psTemplateStep = template.steps.find(ts => ts.id === ps.templateStepId);
+        return psTemplateStep &&
+               psTemplateStep.order < templateStep.order &&
+               ps.artifact?.title &&
+               ps.artifact.content &&
+               ps.artifact.summary;
+      })
+      .map(ps => {
+        const psTemplateStep = template.steps.find(ts => ts.id === ps.templateStepId);
+        return {
+          stepTitle: psTemplateStep?.title || '',
+          title: ps.artifact!.title,
+          content: ps.artifact!.content,
+          summary: ps.artifact!.summary
+        };
+      });
+
     // システムプロンプトの構築
-    const prompt = step.templateStepId;
+    const prompt = templateStep.systemPrompt;
     
     // 参照ドキュメントの内容を追加
-    const contextDocs = step.documents
-      .filter(doc => doc.isEnabled)
-      .map(doc => {
-        const refDoc = step.uploadedDocuments.find(ref => ref.id === doc.id);
+    const contextDocs = currentStep.documents
+      .filter((doc: { isEnabled: boolean; id: string }) => doc.isEnabled)
+      .map((doc: { id: string }) => {
+        const refDoc = currentStep.uploadedDocuments.find(ref => ref.id === doc.id);
         return refDoc ? `Document: ${refDoc.title}\n${refDoc.content}` : '';
       })
       .join('\n\n');
 
     // AIによる応答生成
-    const success = await aiService.generateContextResponse(prompt, contextDocs, message, res);
+    const success = await aiService.generateContextResponse(
+      currentStep,
+      prompt,
+      contextDocs,
+      message,
+      templateStep,
+      allSteps,
+      previousArtifacts,
+      res
+    );
     if (!success) {
       res.status(500).json({ error: 'Failed to generate response' });
       return;
@@ -140,12 +209,6 @@ app.post('/api/chat/example', authenticateUser, async (req, res) => {
       return;
     }
 
-    const step = await firestoreService.getProjectStep(userId, projectId, stepId);
-    if (!step) {
-      res.status(404).json({ error: 'Step not found' });
-      return;
-    }
-
     const project = await firestoreService.getProject(userId, projectId);
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
@@ -158,16 +221,33 @@ app.post('/api/chat/example', authenticateUser, async (req, res) => {
       return;
     }
 
-    const templateStep = template.steps?.find(s => s.id === step?.templateStepId);
-    if (!templateStep?.userChoicePromptTemplate) {
+    // テンプレートのステップが存在することを確認
+    if (!template.steps || template.steps.length === 0) {
+      res.status(400).json({ error: 'Template steps not found' });
+      return;
+    }
+
+    // プロジェクトの全ステップを取得
+    const projectSteps = await firestoreService.getProjectSteps(userId, projectId);
+    
+    // 現在のステップを見つける
+    const currentStep = projectSteps.find(ps => ps.id === stepId);
+    if (!currentStep) {
+      res.status(404).json({ error: 'Step not found' });
+      return;
+    }
+
+    // テンプレートステップの取得
+    const templateStep = template.steps.find(s => s.id === currentStep.templateStepId);
+    if (!templateStep) {
       res.status(400).json({ error: 'Template step or user choice prompt not found' });
       return;
     }
 
-    const recentConversations = Array.isArray(step?.conversations) && step.conversations.length > 0
-      ? step.conversations
+    const recentConversations = Array.isArray(currentStep.conversations) && currentStep.conversations.length > 0
+      ? currentStep.conversations
           .slice(-5)
-          .map(conv => `${conv.role}: ${conv.content}`)
+          .map((conv: { role: string; content: string }) => `${conv.role}: ${conv.content}`)
           .join('\n')
       : '';
 
@@ -203,12 +283,6 @@ app.post('/api/chat/artifact', authenticateUser, async (req, res) => {
       return;
     }
 
-    const step = await firestoreService.getProjectStep(userId, projectId, stepId);
-    if (!step) {
-      res.status(404).json({ error: 'Step not found' });
-      return;
-    }
-
     const project = await firestoreService.getProject(userId, projectId);
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
@@ -221,15 +295,33 @@ app.post('/api/chat/artifact', authenticateUser, async (req, res) => {
       return;
     }
 
-    const templateStep = template.steps?.find(s => s.id === step?.templateStepId);
-    if (!templateStep?.userChoicePromptTemplate) {
-      res.status(400).json({ error: 'Template step or user choice prompt not found' });
+    // テンプレートのステップが存在することを確認
+    if (!template.steps || template.steps.length === 0) {
+      res.status(400).json({ error: 'Template steps not found' });
+      return;
+    }
+
+    // プロジェクトの全ステップを取得
+    const projectSteps = await firestoreService.getProjectSteps(userId, projectId);
+    
+    // 現在のステップを見つける
+    const currentStep = projectSteps.find(ps => ps.id === stepId);
+    if (!currentStep) {
+      res.status(404).json({ error: 'Step not found' });
+      return;
+    }
+
+    // テンプレートステップの取得
+    const templateStep = template.steps.find(s => s.id === currentStep.templateStepId);
+    if (!templateStep) {
+      res.status(400).json({ error: 'Template step not found' });
       return;
     }
 
     const artifact = await aiService.generateArtifact(
       templateStep.artifactGenerationPrompt,
-      step.conversations
+      currentStep,
+      template.steps
     );
 
     if (!artifact) {

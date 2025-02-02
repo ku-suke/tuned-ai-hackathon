@@ -113,6 +113,33 @@ export class FirestoreService {
     }
   }
 
+  async getProjectSteps(userId: string, projectId: string): Promise<ProjectStep[]> {
+    try {
+      const stepsSnapshot = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('projects')
+        .doc(projectId)
+        .collection('steps')
+        .orderBy('order')
+        .get();
+
+      return stepsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          conversations: Array.isArray(data.conversations) ? data.conversations : [],
+          documents: Array.isArray(data.documents) ? data.documents : [],
+          uploadedDocuments: Array.isArray(data.uploadedDocuments) ? data.uploadedDocuments : []
+        } as ProjectStep;
+      });
+    } catch (error) {
+      console.error('Error in getProjectSteps:', error);
+      return [];
+    }
+  }
+
   async updateStepArtifact(userId: string, projectId: string, stepId: string, artifact: any) {
     try {
       await admin.firestore()

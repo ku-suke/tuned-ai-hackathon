@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, GenerativeModel, ChatSession, SchemaType } from '@google/generative-ai';
 import { validateEnv } from '../config/env';
+import { ProjectStep, ProjectTemplateStep } from '../types/firestore';
 
 interface Response {
   write(data: string): void;
@@ -17,7 +18,7 @@ interface StructuredLog {
 }
 
 export class AIService {
-  private readonly model: GenerativeModel;
+  private genAI: GoogleGenerativeAI;
   private readonly safetySettings = [
     {
       category: HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -39,14 +40,19 @@ export class AIService {
 
   constructor() {
     const env = validateEnv();
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-    this.model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    this.genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   }
 
-  private startChat(history: any[] = []): ChatSession {
-    return this.model.startChat({
+  private startChat(history: any[] = [], systemInstruction?: string, mimeType?: string): ChatSession {
+    const model = this.genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-exp',
+      systemInstruction: systemInstruction
+    });
+    model.generationConfig.responseMimeType = mimeType || 'text/plain';
+    return model.startChat({
       history,
       safetySettings: this.safetySettings,
+      
     });
   }
 
@@ -54,62 +60,100 @@ export class AIService {
     console.log(JSON.stringify(log));
   }
 
-  async generateChatResponse(messages: string[]): Promise<AsyncGenerator<string>> {
-    try {
-      const chat = this.startChat();
-      const message = messages[messages.length - 1];
-
-      this.logStructured({
-        severity: 'DEBUG',
-        message: 'Generating chat response',
-        context: { prompt: message }
-      });
-
-      const result = await chat.sendMessageStream(message);
-      
-      const generator = async function* () {
-        for await (const chunk of result.stream) {
-          const text = chunk.text();
-          if (text) {
-            yield text;
-          }
-        }
+  async generateContextResponse(
+    step: ProjectStep,
+    systemPrompt: string,
+    contextDocs: string,
+    message: string,
+    templateStep: {
+      firstMessageTemplate: string;
+    },
+    allSteps: Array<{
+      stepNumber: number;
+      title: string;
+      isCurrentStep: boolean;
+      artifact?: {
+        title: string;
+        content: string;
+        summary: string;
       };
-
-      return generator();
-    } catch (error: any) {
-      this.logStructured({
-        severity: 'ERROR',
-        message: 'Chat generation failed',
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        },
-        context: { messages }
-      });
-      throw error;
-    }
-  }
-
-  async generateContextResponse(systemPrompt: string, contextDocs: string, message: string, res: Response) {
+    }>,
+    previousArtifacts: Array<{
+      stepTitle: string;
+      title: string;
+      content: string;
+      summary: string;
+    }>,
+    res: Response
+  ) {
     try {
-      const fullPrompt = `
+      // 全ステップ情報の構築
+      const stepsInfo = allSteps
+        .map(step => {
+          return `Step ${step.stepNumber}: ${step.title}${step.isCurrentStep ? ' (Current Step)' : ''}`;
+        })
+        .join('\n');
+
+      // 前のステップの成果物の追加
+      const artifactsInfo = previousArtifacts
+        .map(artifact => {
+          return `
+Step: ${artifact.stepTitle}
+Title: ${artifact.title}
+Summary: ${artifact.summary}`;
+        })
+        .join('\n\n');
+
+      const fullSystemPrompt = `
 System: ${systemPrompt}
+
+* Keep your responses concise and to the point.
+
+Project Steps Overview:
+${stepsInfo}
+
+* You are limited to answering questions about the current step only. Please guide users to move to the appropriate step for questions about other steps.
+
+Previous Steps Artifacts:
+${artifactsInfo}
 
 Reference Documents:
 ${contextDocs}
 
-User Question: ${message}`;
+Language: Japanese`;
 
       this.logStructured({
         severity: 'DEBUG',
         message: 'Generating context response',
-        context: { systemPrompt, contextDocs, userMessage: message }
+        context: {
+          systemPrompt,
+          stepsInfo,
+          artifactsInfo,
+          contextDocs,
+          userMessage: message
+        }
       });
 
-      const chat = this.startChat();
-      const result = await chat.sendMessageStream(fullPrompt);
+      // firstMessageTemplateをhistoryに追加
+      const initialHistory = [{
+        role: 'user',
+        parts: [{ text: 'よろしくお願いします。' }]
+      }, {
+        role: 'model',
+        parts: [{ text: templateStep.firstMessageTemplate }]
+      }];
+      // このステップにおけるこれまでの会話をinitialHistoryに追加
+      initialHistory.push(
+        ...step.conversations
+          .filter(conv => conv.content && conv.content.trim() !== '')
+          .map(conv => ({
+            role: conv.role,
+            parts: [{ text: conv.content }]
+          }))
+      );
+
+      const chat = this.startChat(initialHistory, fullSystemPrompt);
+      const result = await chat.sendMessageStream(message);
 
       for await (const chunk of result.stream) {
         const text = chunk.text();
@@ -136,24 +180,17 @@ User Question: ${message}`;
     systemPrompt: string,
     recentConversations: string
   ): Promise<string[] | null> {
+
+    const assisInstructions = `
+    あなたは、ロールプレイングAIです。これから、専門家AIとユーザの会話文を渡しますので、ユーザーの立場をロールプレイして回答例を3つ生成してください。`;
     try {
-      const chat = this.startChat();
+      const chat = this.startChat([], assisInstructions, 'application/json');
 
       const prompt = `
-System: あなたは会話の文脈を理解して適切な選択肢を提示するAIアシスタントです。
-以下の情報を元に、ユーザーが選択できる適切な回答例を3つ生成してください。
-ユーザーは、別の専門家AIからヒアリングを受けています。
-回答例は、会話の文脈に沿った自然な表現を心がけてください。
-
-Recent Conversations:
 専門家AIの定義: ${systemPrompt}
-${recentConversations}
 
-Based on the above context, generate 3 appropriate response options that:
-1. Follow the user choice prompt template
-2. Consider the context of recent conversations
-3. Are natural and conversational
-4. Help move the conversation forward
+ここまでの会話：
+${recentConversations}
 
 Output your response in the following JSON format:
 {
@@ -169,10 +206,6 @@ Output your response in the following JSON format:
         message: 'Generating example responses',
         context: { systemPrompt, recentConversations, prompt }
       });
-
-      this.model.generationConfig = {
-        responseMimeType: 'application/json'
-      };
 
       const result = await chat.sendMessage(prompt);
       const text = result.response.text();
@@ -211,34 +244,59 @@ Output your response in the following JSON format:
 
   async generateArtifact(
     artifactPrompt: string,
-    conversations: Array<{ role: string; content: string }>
+    currentStep: ProjectStep,
+    templateSteps: Array<ProjectTemplateStep>
   ) {
     try {
+      const conversations = currentStep.conversations;
       const history = conversations.map(conv => ({
         role: conv.role === 'user' ? 'user' : 'model',
         parts: [{ text: conv.content }],
       }));
 
-      const chat = this.startChat(history);
-      const prompt = `
-System: ${artifactPrompt}
-以下の形式のJSONで成果物を生成してください：
+      // すべてのテンプレートステップのタイトルを取得、ただし、現在のステップは除く
+      const allSteps = templateSteps.map((step, index) => {
+        return {
+          stepNumber: index + 1,
+          title: step.title,
+          isCurrentStep: step.id === currentStep.templateStepId
+        };
+      });
+      const stepsInfo = allSteps
+        .map(step => {
+          return `Step ${step.stepNumber}: ${step.title}${step.isCurrentStep ? ' (Current Step)' : ''}`;
+        })
+        .join('\n');
+      
 
-{
-  "title": "成果物のタイトル",
-  "content": "成果物の本文（詳細な内容）",
-  "summary": "成果物の要約（100文字程度）"
-}`;
+      const systemInstruction = `
+      # System Instruction
+      あなたは、マーケティング事務AIです。以下の形式のJSONでこのステップの成果物を日本語で生成してください：
+      {
+        "title": "成果物のタイトル",
+        "content": "成果物の本文（詳細な内容）",
+        "summary": "成果物の要約（100文字程度）"
+      }
+      ※ JSONは必ず1件のみです。複数の情報を返したい場合はcontentの中に複数の情報を含めてください。
+      
+      # これまでのステップの概要：
+      ${stepsInfo}
+
+      ほかのステップに関する会話は成果物に含めないでください。
+
+      # 本文フォーマット（日本語で出力）：
+      ${artifactPrompt}
+
+      ※ JSONは必ず1件のみです。複数の情報を返したい場合はcontentの中に複数の情報を含めてください。配列を使わないこと。
+      `;
+      const chat = this.startChat(history, systemInstruction, 'application/json');
+      const prompt = `これまでの会話をまとめてレポートしてください`;
 
       this.logStructured({
         severity: 'DEBUG',
         message: 'Generating artifact',
         context: { artifactPrompt, conversations, prompt }
       });
-
-      this.model.generationConfig = {
-        responseMimeType: 'application/json',
-      };
 
       const result = await chat.sendMessage(prompt);
       const text = result.response.text();

@@ -87,7 +87,7 @@ export interface ProjectStep {
 
 export interface Conversation {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'model';
   content: string;
   createdAt: Date;
 }

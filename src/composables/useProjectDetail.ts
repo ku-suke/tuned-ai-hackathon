@@ -307,7 +307,7 @@ export function useProjectDetail() {
       // AIメッセージを作成
       const aiMessage: Conversation = {
         id: crypto.randomUUID(),
-        role: 'assistant',
+        role: 'model',
         content: '',
         createdAt: new Date()
       }
@@ -330,7 +330,7 @@ export function useProjectDetail() {
       // エラーメッセージを表示
       if (currentStep.value?.conversations.length) {
         const lastMessage = currentStep.value.conversations[currentStep.value.conversations.length - 1]
-        if (lastMessage.role === 'assistant') {
+        if (lastMessage.role === 'model') {
           await updateAIMessage(lastMessage.id, 'エラーが発生しました。もう一度お試しください。')
         }
       }
@@ -380,6 +380,9 @@ export function useProjectDetail() {
         if (!response.ok) {
           throw new Error('成果物生成に失敗しました');
         }
+        // ローカルステートを更新
+        currentStep.value.artifact = await response.json();
+
       } catch (error) {
         console.error('成果物生成エラー:', error);
       }

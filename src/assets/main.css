@@ -424,6 +424,7 @@ input:checked + .slider:before {
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-sm);
   max-width: 80%;
+  font-size: 0.8rem;
 }
 
 .message.system {
@@ -433,7 +434,7 @@ input:checked + .slider:before {
   color: var(--color-gray);
 }
 
-.message.assistant {
+.message.model {
   background-color: #f0f7ff;
   margin-right: auto;
 }
