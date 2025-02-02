@@ -63,11 +63,11 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label">ユーザー選択肢プロンプト (オプション)</label>
+              <label class="form-label">AIの最初のメッセージ</label>
               <textarea
                 class="form-textarea"
-                v-model="step.userChoicePromptTemplate"
-                placeholder="ユーザーが選択できる選択肢のプロンプトを入力"
+                v-model="step.firstMessageTemplate"
+                placeholder="AIがユーザーに最初に送信するメッセージを入力"
               ></textarea>
             </div>
 
@@ -174,7 +174,7 @@ const addStep = () => {
     title: `ステップ ${steps.value.length + 1}`,
     order: steps.value.length + 1,
     systemPrompt: '',
-    userChoicePromptTemplate: '',
+    firstMessageTemplate: '',
     artifactGenerationPrompt: '',
     referenceDocuments: []
   }
@@ -314,7 +314,7 @@ const handleSave = async () => {
         ...step,
         title: step.title.trim(),
         systemPrompt: step.systemPrompt.trim(),
-        userChoicePromptTemplate: step.userChoicePromptTemplate || '', // オプショナルなプロパティに対してデフォルト値を設定
+        firstMessageTemplate: step.firstMessageTemplate.trim(),
         artifactGenerationPrompt: step.artifactGenerationPrompt.trim(),
       }))
     })

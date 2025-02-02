@@ -44,8 +44,8 @@
       <div class="chat-column">
         <div class="chat-container" v-if="currentStep">
           <div class="chat-messages" ref="chatMessagesRef">
-            <div class="message system">
-              {{ getTemplateStep(currentStep)?.systemPrompt }}
+            <div class="message assistant" v-if="getTemplateStep(currentStep)?.firstMessageTemplate">
+              {{ getTemplateStep(currentStep)?.firstMessageTemplate }}
             </div>
             <template v-if="currentStep.conversations.length > 0">
               <div v-for="message in currentStep.conversations" :key="message.id" class="message" :class="message.role">

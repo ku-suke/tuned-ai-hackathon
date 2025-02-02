@@ -1,3 +1,7 @@
+ProjectTemplateのStep内にあるuserChoicePromptTemplateを廃止し、最初の一言目を話すfirstMessageTemplateを追加してください。このテンプレートは、AIが最初にユーザーに送信するメッセージを定義します。この変更に伴い、EditViewの処理を修正してください。
+
+------
+
 サーバ側でJSONパースエラーが出ています。今回はPoCなのでプロンプトとAIレスポンスをdebugログに出すようにしましょう。可能であればCloudRunの構造化ログに対応させてください。
 
 ------

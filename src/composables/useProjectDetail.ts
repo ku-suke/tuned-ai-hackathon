@@ -262,12 +262,20 @@ export function useProjectDetail() {
   }
 
   // ステップ選択
-  const handleSelectStep = (step: ProjectStep) => {
-    // stepStateの初期化確認
+  const handleSelectStep = async (step: ProjectStep) => {
+    const stepRef = doc(db, `users/${auth.currentUser?.uid}/projects/${project.value?.id}/steps`, step.id)
+
+    // stepStateの初期化
     if (!step.stepState) {
-      step.stepState = { generatedChoices: [] };
+      step.stepState = { generatedChoices: [] }
     }
-    currentStep.value = step;
+
+    // 会話がない場合、「たたき台を出して」を選択肢として追加
+    if (!step.conversations || step.conversations.length === 0) {
+      step.stepState.generatedChoices = ['たたき台を出して']
+    }
+
+    currentStep.value = step
   }
 
   // メッセージ送信
@@ -281,10 +289,10 @@ export function useProjectDetail() {
       content: content.trim(),
       createdAt: new Date()
     }
-    currentStep.value.stepState = { generatedChoices: [] };
+    currentStep.value.stepState = { generatedChoices: [] }
     
     if (!currentStep.value.conversations) {
-      currentStep.value.conversations = [];
+      currentStep.value.conversations = []
     }
 
     try {

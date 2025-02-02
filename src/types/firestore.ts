@@ -39,7 +39,7 @@ export interface ProjectTemplateStep {
   title: string;
   order: number;
   systemPrompt: string;
-  userChoicePromptTemplate?: string;  // AIに選択肢を要求するためのプロンプトのみ
+  firstMessageTemplate: string;  // AIが最初に送信するメッセージのテンプレート
   referenceDocuments: ReferenceDocument[];
   artifactGenerationPrompt: string;
 }
