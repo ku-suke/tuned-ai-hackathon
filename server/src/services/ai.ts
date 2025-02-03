@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold, GenerativeModel, ChatSession, SchemaType } from '@google/generative-ai';
+import { VertexAI } from '@google-cloud/vertexai';
 import { validateEnv } from '../config/env';
 import { ProjectStep, ProjectTemplateStep } from '../types/firestore';
 
@@ -18,46 +18,43 @@ interface StructuredLog {
 }
 
 export class AIService {
-  private genAI: GoogleGenerativeAI;
-  private readonly safetySettings = [
-    {
-      category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-      category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-      threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-  ];
+  private vertexAi: VertexAI;
 
   constructor() {
     const env = validateEnv();
-    this.genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+    this.vertexAi = new VertexAI({
+      project: env.PROJECT_ID,
+      location: 'us-central1'
+    });
   }
 
-  private startChat(history: any[] = [], systemInstruction?: string, mimeType?: string): ChatSession {
-    const model = this.genAI.getGenerativeModel({
+  private async startChat(history: any[] = [], systemInstruction?: string, mimeType?: string) {
+    const model = this.vertexAi.preview.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
-      systemInstruction: systemInstruction
+      generationConfig: {
+        temperature: 0.7,
+        topP: 1,
+        topK: 40,
+      }
     });
-    model.generationConfig.responseMimeType = mimeType || 'text/plain';
-    return model.startChat({
-      history,
-      safetySettings: this.safetySettings,
-      
+
+    const chat = model.startChat({
+      history: history.map(msg => ({
+        role: msg.role,
+        parts: msg.parts
+      })),
+      ...(systemInstruction && { context: systemInstruction })
     });
+
+    return chat;
   }
 
   private logStructured(log: StructuredLog): void {
     console.log(JSON.stringify(log));
+  }
+
+  private getResponseText(response: any): string {
+    return response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
 
   async generateContextResponse(
@@ -87,14 +84,12 @@ export class AIService {
     res: Response
   ) {
     try {
-      // 全ステップ情報の構築
       const stepsInfo = allSteps
         .map(step => {
           return `Step ${step.stepNumber}: ${step.title}${step.isCurrentStep ? ' (Current Step)' : ''}`;
         })
         .join('\n');
 
-      // 前のステップの成果物の追加
       const artifactsInfo = previousArtifacts
         .map(artifact => {
           return `
@@ -134,7 +129,6 @@ Language: Japanese`;
         }
       });
 
-      // firstMessageTemplateをhistoryに追加
       const initialHistory = [{
         role: 'user',
         parts: [{ text: 'よろしくお願いします。' }]
@@ -142,7 +136,7 @@ Language: Japanese`;
         role: 'model',
         parts: [{ text: templateStep.firstMessageTemplate }]
       }];
-      // このステップにおけるこれまでの会話をinitialHistoryに追加
+
       initialHistory.push(
         ...step.conversations
           .filter(conv => conv.content && conv.content.trim() !== '')
@@ -152,11 +146,11 @@ Language: Japanese`;
           }))
       );
 
-      const chat = this.startChat(initialHistory, fullSystemPrompt);
+      const chat = await this.startChat(initialHistory, fullSystemPrompt);
       const result = await chat.sendMessageStream(message);
-
+      
       for await (const chunk of result.stream) {
-        const text = chunk.text();
+        const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
         res.write(`data: ${JSON.stringify({ text })}\n\n`);
       }
 
@@ -184,7 +178,7 @@ Language: Japanese`;
     const assisInstructions = `
     あなたは、ロールプレイングAIです。これから、専門家AIとユーザの会話文を渡しますので、ユーザーの立場をロールプレイして回答例を3つ生成してください。`;
     try {
-      const chat = this.startChat([], assisInstructions, 'application/json');
+      const chat = await this.startChat([], assisInstructions);
 
       const prompt = `
 専門家AIの定義: ${systemPrompt}
@@ -208,7 +202,8 @@ Output your response in the following JSON format:
       });
 
       const result = await chat.sendMessage(prompt);
-      const text = result.response.text();
+      const response = await result.response;
+      const text = this.getResponseText(response);
 
       this.logStructured({
         severity: 'DEBUG',
@@ -249,12 +244,13 @@ Output your response in the following JSON format:
   ) {
     try {
       const conversations = currentStep.conversations;
-      const history = conversations.map(conv => ({
-        role: conv.role === 'user' ? 'user' : 'model',
-        parts: [{ text: conv.content }],
-      }));
+      const history = conversations
+      .filter(conv => conv.content && conv.content.trim() !== '')
+      .map(conv => ({
+        role: conv.role,
+        parts: [{ text: conv.content }]
+      }))
 
-      // すべてのテンプレートステップのタイトルを取得、ただし、現在のステップは除く
       const allSteps = templateSteps.map((step, index) => {
         return {
           stepNumber: index + 1,
@@ -271,13 +267,7 @@ Output your response in the following JSON format:
 
       const systemInstruction = `
       # System Instruction
-      あなたは、マーケティング事務AIです。以下の形式のJSONでこのステップの成果物を日本語で生成してください：
-      {
-        "title": "成果物のタイトル",
-        "content": "成果物の本文（詳細な内容）",
-        "summary": "成果物の要約（100文字程度）"
-      }
-      ※ JSONは必ず1件のみです。複数の情報を返したい場合はcontentの中に複数の情報を含めてください。
+      あなたは、マーケティング事務AIです。以下のフォーマットで成果物を日本語で生成します。
       
       # これまでのステップの概要：
       ${stepsInfo}
@@ -286,10 +276,8 @@ Output your response in the following JSON format:
 
       # 本文フォーマット（日本語で出力）：
       ${artifactPrompt}
-
-      ※ JSONは必ず1件のみです。複数の情報を返したい場合はcontentの中に複数の情報を含めてください。配列を使わないこと。
       `;
-      const chat = this.startChat(history, systemInstruction, 'application/json');
+      const chat = await this.startChat(history, systemInstruction);
       const prompt = `これまでの会話をまとめてレポートしてください`;
 
       this.logStructured({
@@ -299,7 +287,8 @@ Output your response in the following JSON format:
       });
 
       const result = await chat.sendMessage(prompt);
-      const text = result.response.text();
+      const response = await result.response;
+      const text = this.getResponseText(response);
 
       this.logStructured({
         severity: 'DEBUG',
@@ -307,7 +296,34 @@ Output your response in the following JSON format:
         context: { aiResponse: text }
       });
 
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const summaryPrompt = `
+      この成果物の要約とタイトルを生成してください。
+      -----
+      ${text}
+      -----
+      生成するフォーマット：
+      {
+        "title": "成果物のタイトル",
+        "summary": "成果物の要約（100文字程度）"
+      }`;
+
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Generating summary and title',
+        context: { summaryPrompt }
+      });
+      const summaryChat = await this.startChat([], '');
+      const summaryResult = await summaryChat.sendMessage(summaryPrompt);
+      const summaryResponse = await summaryResult.response;
+      const summaryText = this.getResponseText(summaryResponse);
+
+      this.logStructured({
+        severity: 'DEBUG',
+        message: 'Received AI response',
+        context: { aiResponse: summaryText }
+      });
+
+      const jsonMatch = summaryText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('JSON not found in response');
       }
@@ -315,9 +331,9 @@ Output your response in the following JSON format:
       const artifact = JSON.parse(jsonMatch[0]);
       return {
         title: artifact.title || '無題',
-        content: artifact.content || '',
+        content: text || '',
         summary: artifact.summary || '',
-        charCount: artifact.content?.length || 0
+        charCount: text?.length || 0
       };
     } catch (error: any) {
       this.logStructured({
