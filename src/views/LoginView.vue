@@ -18,7 +18,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, db } from '@/main'
-import { GoogleAuthProvider, signInWithPopup, User as FirebaseUser } from 'firebase/auth'
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
+import type { User as FirebaseUser } from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import type { User } from '@/types/firestore'
 

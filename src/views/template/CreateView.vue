@@ -55,7 +55,7 @@ const handleSave = async () => {
       title: 'ステップ 1',
       order: 1,
       systemPrompt: '',
-      userChoicePromptTemplate: '',
+      firstMessageTemplate: '',
       referenceDocuments: [],
       artifactGenerationPrompt: ''
     }

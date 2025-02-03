@@ -148,16 +148,17 @@ const handleDelete = async (id: string) => {
 
   try {
     const batch = writeBatch(db)
+    const uid = auth.currentUser.uid // nullチェック後にuidを取得
 
     // まずステップのサブコレクションを取得して削除
-    const stepsRef = collection(db, `users/${auth.currentUser.uid}/projectTemplates/${id}/steps`)
+    const stepsRef = collection(db, `users/${uid}/projectTemplates/${id}/steps`)
     const stepsSnapshot = await getDocs(stepsRef)
     stepsSnapshot.forEach(stepDoc => {
-      batch.delete(doc(db, `users/${auth.currentUser.uid}/projectTemplates/${id}/steps/${stepDoc.id}`))
+      batch.delete(doc(db, `users/${uid}/projectTemplates/${id}/steps/${stepDoc.id}`))
     })
 
     // テンプレート本体を削除
-    batch.delete(doc(db, `users/${auth.currentUser.uid}/projectTemplates/${id}`))
+    batch.delete(doc(db, `users/${uid}/projectTemplates/${id}`))
 
     await batch.commit()
     templates.value = templates.value.filter(t => t.id !== id)
