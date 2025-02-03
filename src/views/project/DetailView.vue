@@ -94,9 +94,6 @@
                   <span class="slider"></span>
                 </label>
               </div>
-              <p class="document-summary">
-                {{ getTemplateDocument(currentStep, doc)?.content }}
-              </p>
             </div>
           </div>
         </div>

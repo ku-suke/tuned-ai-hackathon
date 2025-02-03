@@ -239,7 +239,7 @@ const handleFileUpload = async (event: Event, stepIndex: number) => {
   uploadLoading.value = true
   try {
     const fileName = `${file.name}-${Date.now()}`
-    const filePath = `users/${auth.currentUser.uid}/projectTemplates/${template.value.id}/${step.id}/${fileName}`
+    const filePath = `users/${auth.currentUser.uid}/projectTemplates/${template.value.id}/steps/${step.id}/${fileName}`
     const fileRef = storageRef(storage, filePath)
 
     // ファイルをアップロード
